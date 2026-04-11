@@ -2,16 +2,41 @@
 
 import { useState } from 'react';
 
+function parseTimeToMinutes(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
 function formatMoney(value: number): string {
   return `₪${value.toFixed(2)}`;
 }
 
 export default function Home() {
-  const [minutes, setMinutes] = useState<number>(0);
+  const [start, setStart] = useState('08:00');
+  const [end, setEnd] = useState('17:00');
 
   const hourlyRate = 50;
-  const hours = minutes / 60;
-  const salary = hours * hourlyRate;
+
+  const startMinutes = parseTimeToMinutes(start);
+  const endMinutes = parseTimeToMinutes(end);
+
+  let totalMinutes = endMinutes - startMinutes;
+
+  // טיפול במקרה של חציית חצות
+  if (totalMinutes < 0) {
+    totalMinutes += 24 * 60;
+  }
+
+  const totalHours = totalMinutes / 60;
+
+  let regularHours = Math.min(totalHours, 8);
+  let extra125 = Math.max(Math.min(totalHours - 8, 2), 0);
+  let extra150 = Math.max(totalHours - 10, 0);
+
+  const salary =
+    regularHours * hourlyRate +
+    extra125 * hourlyRate * 1.25 +
+    extra150 * hourlyRate * 1.5;
 
   return (
     <div
@@ -26,34 +51,43 @@ export default function Home() {
     >
       <div
         style={{
-          width: 320,
+          width: 340,
           background: '#fff',
           padding: 24,
           borderRadius: 12,
           boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
-          textAlign: 'center',
         }}
       >
-        <h1 style={{ marginBottom: 20 }}>Salary Calculator</h1>
+        <h1 style={{ textAlign: 'center', marginBottom: 20 }}>
+          Work Calculator
+        </h1>
 
+        <label>Start Time</label>
         <input
-          type="number"
-          placeholder="Enter minutes"
-          value={minutes}
-          onChange={(e) => setMinutes(Number(e.target.value))}
-          style={{
-            width: '100%',
-            padding: 10,
-            marginBottom: 20,
-            borderRadius: 8,
-            border: '1px solid #ccc',
-          }}
+          type="time"
+          value={start}
+          onChange={(e) => setStart(e.target.value)}
+          style={{ width: '100%', marginBottom: 10 }}
         />
 
-        <p>Hours: {hours.toFixed(2)}</p>
-        <p style={{ fontWeight: 'bold' }}>
+        <label>End Time</label>
+        <input
+          type="time"
+          value={end}
+          onChange={(e) => setEnd(e.target.value)}
+          style={{ width: '100%', marginBottom: 20 }}
+        />
+
+        <div style={{ fontSize: 16 }}>
+          <p>Total Hours: {totalHours.toFixed(2)}</p>
+          <p>Regular: {regularHours.toFixed(2)}</p>
+          <p>125%: {extra125.toFixed(2)}</p>
+          <p>150%: {extra150.toFixed(2)}</p>
+        </div>
+
+        <h2 style={{ marginTop: 20 }}>
           Salary: {formatMoney(salary)}
-        </p>
+        </h2>
       </div>
     </div>
   );
