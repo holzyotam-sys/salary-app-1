@@ -26,6 +26,15 @@ function formatDateTime(timestamp: number): string {
   });
 }
 
+function formatTimeOnly(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString("he-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
 function formatDateTimeLocalValue(timestamp: number): string {
   const d = new Date(timestamp);
   const year = d.getFullYear();
@@ -36,15 +45,73 @@ function formatDateTimeLocalValue(timestamp: number): string {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+function normalizeHebrewMonth(raw: string): string {
+  const value = raw.toLowerCase().trim();
+
+  if (value.includes("tish")) return "tishri";
+  if (value.includes("hesh") || value.includes("chesh")) return "heshvan";
+  if (value.includes("kis")) return "kislev";
+  if (value.includes("tev")) return "tevet";
+  if (value.includes("shev")) return "shevat";
+  if (value.includes("adar")) return "adar";
+  if (value.includes("nis")) return "nisan";
+  if (value.includes("iya")) return "iyar";
+  if (value.includes("siv")) return "sivan";
+  if (value.includes("tam")) return "tammuz";
+  if (value.includes("av")) return "av";
+  if (value.includes("elu")) return "elul";
+
+  return value;
+}
+
+function getHebrewParts(timestamp: number): { day: number; month: string } {
+  const date = new Date(timestamp);
+
+  const formatter = new Intl.DateTimeFormat("en-u-ca-hebrew", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const parts = formatter.formatToParts(date);
+
+  const day = Number(parts.find((p) => p.type === "day")?.value ?? "0");
+  const monthRaw = parts.find((p) => p.type === "month")?.value ?? "";
+
+  return {
+    day,
+    month: normalizeHebrewMonth(monthRaw),
+  };
+}
+
 function isSaturday(timestamp: number): boolean {
   return new Date(timestamp).getDay() === 6;
+}
+
+function getHolidayName(timestamp: number): string | null {
+  const { day, month } = getHebrewParts(timestamp);
+
+  if (month === "tishri" && (day === 1 || day === 2)) return "ראש השנה";
+  if (month === "tishri" && day === 10) return "יום כיפור";
+  if (month === "tishri" && day === 15) return "סוכות";
+  if (month === "tishri" && day === 22) return "שמיני עצרת / שמחת תורה";
+
+  if (month === "nisan" && day === 15) return "פסח";
+  if (month === "nisan" && day === 21) return "שביעי של פסח";
+
+  if (month === "sivan" && day === 6) return "שבועות";
+
+  return null;
 }
 
 function calculateShift(shift: Shift) {
   const totalHours = Math.max(0, (shift.end - shift.start) / 1000 / 60 / 60);
 
   const saturday = isSaturday(shift.start);
-  const baseMultiplier = saturday ? 1.5 : 1;
+  const holidayName = getHolidayName(shift.start);
+  const holiday = Boolean(holidayName);
+
+  const baseMultiplier = saturday || holiday ? 1.5 : 1;
 
   let regularHours = 0;
   let overtime125Hours = 0;
@@ -69,6 +136,10 @@ function calculateShift(shift: Shift) {
 
   const totalPay = regularPay + overtime125Pay + overtime150Pay;
 
+  let dayTypeLabel = "יום רגיל";
+  if (holiday) dayTypeLabel = `חג - ${holidayName}`;
+  if (saturday) dayTypeLabel = holiday ? `שבת + ${holidayName}` : "שבת";
+
   return {
     totalHours,
     regularHours,
@@ -79,7 +150,9 @@ function calculateShift(shift: Shift) {
     overtime150Pay,
     totalPay,
     saturday,
-    dayTypeLabel: saturday ? "שבת" : "יום רגיל",
+    holiday,
+    holidayName,
+    dayTypeLabel,
     effectiveBaseRate: shift.salaryPerHour * baseMultiplier,
   };
 }
@@ -243,6 +316,7 @@ export default function Home() {
 
   const liveMoney = useMemo(() => {
     if (!isWorking || !startTime) return 0;
+
     const liveShift: Shift = {
       id: "live",
       start: startTime,
@@ -250,6 +324,7 @@ export default function Home() {
       salaryPerHour: salary,
       note,
     };
+
     return calculateShift(liveShift).totalPay;
   }, [isWorking, startTime, now, salary, note]);
 
@@ -385,16 +460,12 @@ export default function Home() {
             }}
           >
             <p>
-              {formatDateTime(shift.start)} → {new Date(shift.end).toLocaleTimeString("he-IL", {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-                hour12: false,
-              })}
+              {formatDateTime(shift.start)} → {formatTimeOnly(shift.end)}
             </p>
 
             <p>סוג יום: {c.dayTypeLabel}</p>
             {c.saturday && <p>🔥 תעריף שבת 150%</p>}
+            {c.holiday && <p>🎉 תעריף חג 150%</p>}
 
             <p>סה"כ שעות: {c.totalHours.toFixed(2)}</p>
 
