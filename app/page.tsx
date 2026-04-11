@@ -13,7 +13,7 @@ function formatHoursFromMinutes(minutes: number): string {
 export default function Home() {
   const [minutes, setMinutes] = useState<number>(0);
 
-  const hourlyRate = 50; // תעריף לדוגמה
+  const hourlyRate = 50;
 
   const hours = Number(formatHoursFromMinutes(minutes));
   const salary = hours * hourlyRate;
