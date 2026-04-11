@@ -1,19 +1,23 @@
-import type { Metadata } from "next";
-import "./globals.css";
-
-export const metadata: Metadata = {
-  title: "מחשבון שכר",
-  description: "אפליקציית חישוב שכר",
-};
-
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="he" dir="rtl">
-      <body>{children}</body>
+    <html lang="he">
+      <body
+        style={{
+          margin: 0,
+          fontFamily: 'Arial',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          height: '100vh',
+          direction: 'ltr',
+        }}
+      >
+        {children}
+      </body>
     </html>
   );
 }
