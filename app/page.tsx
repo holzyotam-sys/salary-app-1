@@ -8,9 +8,7 @@ type Shift = {
   note: string;
 };
 
-const isSaturday = (date: Date) => {
-  return date.getDay() === 6;
-};
+const isSaturday = (date: Date) => date.getDay() === 6;
 
 export default function Home() {
   const [salary, setSalary] = useState(50);
@@ -19,6 +17,19 @@ export default function Home() {
   const [startTime, setStartTime] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [holidays, setHolidays] = useState<string[]>([]);
+
+  // 📅 מושך חגים מהאינטרנט
+  useEffect(() => {
+    fetch("https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&year=now&c=on&geo=IL")
+      .then(res => res.json())
+      .then(data => {
+        const dates = data.items.map((item: any) =>
+          new Date(item.date).toDateString()
+        );
+        setHolidays(dates);
+      });
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem("shifts");
@@ -55,13 +66,20 @@ export default function Home() {
     setNote("");
   };
 
+  const isHoliday = (date: Date) => {
+    return holidays.includes(date.toDateString());
+  };
+
   const calcShift = (shift: Shift) => {
     const hours = (shift.end - shift.start) / 1000 / 60 / 60;
     const date = new Date(shift.start);
 
+    const saturday = isSaturday(date);
+    const holiday = isHoliday(date);
+
     let multiplier = 1;
 
-    if (isSaturday(date)) {
+    if (saturday || holiday) {
       multiplier = 1.5;
     }
 
@@ -90,7 +108,8 @@ export default function Home() {
       overtime125,
       overtime150,
       total: regPay + pay125 + pay150,
-      isSaturday: isSaturday(date),
+      saturday,
+      holiday,
     };
   };
 
@@ -139,7 +158,8 @@ export default function Home() {
               {new Date(shift.end).toLocaleTimeString()}
             </p>
 
-            {c.isSaturday && <p>🔥 שבת (150%)</p>}
+            {c.saturday && <p>🔥 שבת</p>}
+            {c.holiday && <p>🎉 חג</p>}
 
             <p>סה"כ שעות: {c.hours.toFixed(2)}</p>
             <p>רגילות: {c.regular.toFixed(2)}</p>
