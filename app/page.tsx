@@ -15,7 +15,7 @@ const DEFAULTS = {
   shifts: [],
 };
 
-function formatMoney(value) {
+function formatMoney(value: number) {
   return `₪${Number(value || 0).toFixed(2)}`;
 }
 
@@ -849,4 +849,4 @@ const rowBetween = {
   justifyContent: "space-between",
   gap: 12,
   marginBottom: 6,
-};
+}
