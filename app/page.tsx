@@ -10,6 +10,20 @@ type Shift = {
   note: string;
 };
 
+type HolidayMap = Record<string, string>;
+
+type HebcalItem = {
+  date?: string;
+  title?: string;
+  category?: string;
+  subcat?: string;
+  yomtov?: boolean;
+};
+
+type HebcalResponse = {
+  items?: HebcalItem[];
+};
+
 function formatMoney(value: number): string {
   return `₪${value.toFixed(2)}`;
 }
@@ -45,70 +59,69 @@ function formatDateTimeLocalValue(timestamp: number): string {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
-function normalizeHebrewMonth(raw: string): string {
-  const value = raw.toLowerCase().trim();
-
-  if (value.includes("tish")) return "tishri";
-  if (value.includes("hesh") || value.includes("chesh")) return "heshvan";
-  if (value.includes("kis")) return "kislev";
-  if (value.includes("tev")) return "tevet";
-  if (value.includes("shev")) return "shevat";
-  if (value.includes("adar")) return "adar";
-  if (value.includes("nis")) return "nisan";
-  if (value.includes("iya")) return "iyar";
-  if (value.includes("siv")) return "sivan";
-  if (value.includes("tam")) return "tammuz";
-  if (value.includes("av")) return "av";
-  if (value.includes("elu")) return "elul";
-
-  return value;
-}
-
-function getHebrewParts(timestamp: number): { day: number; month: string } {
-  const date = new Date(timestamp);
-
-  const formatter = new Intl.DateTimeFormat("en-u-ca-hebrew", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-
-  const parts = formatter.formatToParts(date);
-
-  const day = Number(parts.find((p) => p.type === "day")?.value ?? "0");
-  const monthRaw = parts.find((p) => p.type === "month")?.value ?? "";
-
-  return {
-    day,
-    month: normalizeHebrewMonth(monthRaw),
-  };
+function toDateKey(timestamp: number): string {
+  const d = new Date(timestamp);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function isSaturday(timestamp: number): boolean {
   return new Date(timestamp).getDay() === 6;
 }
 
-function getHolidayName(timestamp: number): string | null {
-  const { day, month } = getHebrewParts(timestamp);
+function normalizeHolidayTitle(title: string): string {
+  const value = title.toLowerCase();
 
-  if (month === "tishri" && (day === 1 || day === 2)) return "ראש השנה";
-  if (month === "tishri" && day === 10) return "יום כיפור";
-  if (month === "tishri" && day === 15) return "סוכות";
-  if (month === "tishri" && day === 22) return "שמיני עצרת / שמחת תורה";
+  if (value.includes("rosh hashana")) return "ראש השנה";
+  if (value.includes("yom kippur")) return "יום כיפור";
+  if (value.includes("sukkot")) return "סוכות";
+  if (value.includes("shemini atzeret")) return "שמיני עצרת";
+  if (value.includes("simchat torah")) return "שמחת תורה";
+  if (value.includes("pesach i")) return "פסח";
+  if (value.includes("pesach vii")) return "שביעי של פסח";
+  if (value.includes("shavuot")) return "שבועות";
+  if (value.includes("yom haatzma")) return "יום העצמאות";
 
-  if (month === "nisan" && day === 15) return "פסח";
-  if (month === "nisan" && day === 21) return "שביעי של פסח";
-
-  if (month === "sivan" && day === 6) return "שבועות";
-
-  return null;
+  return title;
 }
 
-function calculateShift(shift: Shift) {
+function isPaidIsraeliHolidayTitle(title: string): boolean {
+  const value = title.toLowerCase();
+
+  return (
+    value.includes("rosh hashana") ||
+    value.includes("yom kippur") ||
+    value.includes("sukkot") ||
+    value.includes("shemini atzeret") ||
+    value.includes("simchat torah") ||
+    value.includes("pesach i") ||
+    value.includes("pesach vii") ||
+    value.includes("shavuot") ||
+    value.includes("yom haatzma")
+  );
+}
+
+function buildHolidayMapFromHebcal(items: HebcalItem[]): HolidayMap {
+  const map: HolidayMap = {};
+
+  for (const item of items) {
+    if (!item.date || !item.title) continue;
+
+    if (!isPaidIsraeliHolidayTitle(item.title)) continue;
+
+    map[item.date] = normalizeHolidayTitle(item.title);
+  }
+
+  return map;
+}
+
+function calculateShift(shift: Shift, holidayMap: HolidayMap) {
   const totalHours = Math.max(0, (shift.end - shift.start) / 1000 / 60 / 60);
 
   const saturday = isSaturday(shift.start);
-  const holidayName = getHolidayName(shift.start);
+  const holidayName = holidayMap[toDateKey(shift.start)] ?? null;
   const holiday = Boolean(holidayName);
 
   const baseMultiplier = saturday || holiday ? 1.5 : 1;
@@ -157,6 +170,25 @@ function calculateShift(shift: Shift) {
   };
 }
 
+async function fetchHebcalHolidays(year: number): Promise<HolidayMap> {
+  const params = new URLSearchParams({
+    v: "1",
+    cfg: "json",
+    year: String(year),
+    i: "on",
+    maj: "on",
+    mod: "on",
+  });
+
+  const response = await fetch(`https://www.hebcal.com/hebcal?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Hebcal request failed for year ${year}`);
+  }
+
+  const data = (await response.json()) as HebcalResponse;
+  return buildHolidayMapFromHebcal(data.items ?? []);
+}
+
 export default function Home() {
   const [salary, setSalary] = useState<number>(50);
   const [note, setNote] = useState<string>("");
@@ -174,6 +206,11 @@ export default function Home() {
   const [manualStart, setManualStart] = useState("");
   const [manualEnd, setManualEnd] = useState("");
   const [manualNote, setManualNote] = useState("");
+
+  const [holidayMap, setHolidayMap] = useState<HolidayMap>({});
+  const [holidayStatus, setHolidayStatus] = useState<"idle" | "loading" | "ready" | "error">(
+    "idle"
+  );
 
   useEffect(() => {
     const savedShifts = localStorage.getItem("shifts");
@@ -220,6 +257,44 @@ export default function Home() {
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHolidays() {
+      try {
+        setHolidayStatus("loading");
+
+        const currentYear = new Date().getFullYear();
+        const nextYear = currentYear + 1;
+        const previousYear = currentYear - 1;
+
+        const [prevMap, currentMap, nextMap] = await Promise.all([
+          fetchHebcalHolidays(previousYear),
+          fetchHebcalHolidays(currentYear),
+          fetchHebcalHolidays(nextYear),
+        ]);
+
+        if (cancelled) return;
+
+        setHolidayMap({
+          ...prevMap,
+          ...currentMap,
+          ...nextMap,
+        });
+        setHolidayStatus("ready");
+      } catch {
+        if (cancelled) return;
+        setHolidayStatus("error");
+      }
+    }
+
+    loadHolidays();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function startShift() {
@@ -325,8 +400,8 @@ export default function Home() {
       note,
     };
 
-    return calculateShift(liveShift).totalPay;
-  }, [isWorking, startTime, now, salary, note]);
+    return calculateShift(liveShift, holidayMap).totalPay;
+  }, [isWorking, startTime, now, salary, note, holidayMap]);
 
   return (
     <main
@@ -366,6 +441,17 @@ export default function Home() {
 
       <h2>💰 כסף בזמן אמת: {formatMoney(liveMoney)}</h2>
 
+      <p>
+        מצב מנוע חגים:{" "}
+        {holidayStatus === "loading"
+          ? "טוען..."
+          : holidayStatus === "ready"
+          ? "מוכן"
+          : holidayStatus === "error"
+          ? "שגיאה"
+          : "לא התחיל"}
+      </p>
+
       <hr />
 
       <h2>➕ הוספה ידנית</h2>
@@ -398,7 +484,7 @@ export default function Home() {
       {shifts.length === 0 && <p>אין עדיין משמרות</p>}
 
       {shifts.map((shift) => {
-        const c = calculateShift(shift);
+        const c = calculateShift(shift, holidayMap);
 
         if (editingId === shift.id) {
           return (
