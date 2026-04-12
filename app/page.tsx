@@ -208,6 +208,11 @@ export default function Home() {
     "idle"
   );
 
+  // שלב 1: פרופיל משתמש
+  const [creditPoints, setCreditPoints] = useState<number>(2.25);
+  const [pensionPercent, setPensionPercent] = useState<number>(6);
+  const [trainingFundPercent, setTrainingFundPercent] = useState<number>(2.5);
+
   useEffect(() => {
     const savedShifts = localStorage.getItem("shifts");
     const savedWorking = localStorage.getItem("workingShift");
@@ -409,6 +414,42 @@ export default function Home() {
       }}
     >
       <h1>Work Tracker</h1>
+
+      <div style={{ border: "1px solid #ccc", padding: 12, marginBottom: 20 }}>
+        <h2>פרופיל משתמש - שלב 1</h2>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>נקודות זיכוי: </label>
+          <input
+            type="number"
+            step="0.25"
+            value={creditPoints}
+            onChange={(e) => setCreditPoints(Number(e.target.value))}
+          />
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>אחוז פנסיה עובד: </label>
+          <input
+            type="number"
+            step="0.1"
+            value={pensionPercent}
+            onChange={(e) => setPensionPercent(Number(e.target.value))}
+          />
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>אחוז קרן השתלמות עובד: </label>
+          <input
+            type="number"
+            step="0.1"
+            value={trainingFundPercent}
+            onChange={(e) => setTrainingFundPercent(Number(e.target.value))}
+          />
+        </div>
+
+        <p>כרגע זה רק מוצג במסך. בשלב הבא נחבר את זה לחישוב הנטו.</p>
+      </div>
 
       <input
         type="number"
