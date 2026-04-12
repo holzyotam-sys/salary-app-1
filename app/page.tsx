@@ -157,11 +157,8 @@ function calculateShift(shift: Shift, holidayMap: HolidayMap) {
   }
 
   const regularPay = regularHours * shift.salaryPerHour * baseMultiplier;
-  const overtime125Pay =
-    overtime125Hours * shift.salaryPerHour * 1.25 * baseMultiplier;
-  const overtime150Pay =
-    overtime150Hours * shift.salaryPerHour * 1.5 * baseMultiplier;
-
+  const overtime125Pay = overtime125Hours * shift.salaryPerHour * 1.25 * baseMultiplier;
+  const overtime150Pay = overtime150Hours * shift.salaryPerHour * 1.5 * baseMultiplier;
   const totalPay = regularPay + overtime125Pay + overtime150Pay;
 
   let dayTypeLabel = "יום רגיל";
@@ -208,7 +205,6 @@ export default function Home() {
     "idle"
   );
 
-  // שלב 1: פרופיל משתמש
   const [creditPoints, setCreditPoints] = useState<number>(2.25);
   const [pensionPercent, setPensionPercent] = useState<number>(6);
   const [trainingFundPercent, setTrainingFundPercent] = useState<number>(2.5);
@@ -217,6 +213,7 @@ export default function Home() {
     const savedShifts = localStorage.getItem("shifts");
     const savedWorking = localStorage.getItem("workingShift");
     const savedSalary = localStorage.getItem("defaultSalary");
+    const savedProfile = localStorage.getItem("salaryProfile");
 
     if (savedShifts) {
       setShifts(JSON.parse(savedShifts));
@@ -232,6 +229,13 @@ export default function Home() {
 
     if (savedSalary) {
       setSalary(Number(savedSalary));
+    }
+
+    if (savedProfile) {
+      const parsed = JSON.parse(savedProfile);
+      setCreditPoints(parsed.creditPoints ?? 2.25);
+      setPensionPercent(parsed.pensionPercent ?? 6);
+      setTrainingFundPercent(parsed.trainingFundPercent ?? 2.5);
     }
   }, []);
 
@@ -254,6 +258,17 @@ export default function Home() {
       })
     );
   }, [isWorking, startTime, note, salary]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "salaryProfile",
+      JSON.stringify({
+        creditPoints,
+        pensionPercent,
+        trainingFundPercent,
+      })
+    );
+  }, [creditPoints, pensionPercent, trainingFundPercent]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -306,10 +321,13 @@ export default function Home() {
   function endShift() {
     if (!startTime) return;
 
+    const end = Date.now();
+    if (end <= startTime) return;
+
     const newShift: Shift = {
       id: crypto.randomUUID(),
       start: startTime,
-      end: Date.now(),
+      end,
       salaryPerHour: salary,
       note,
     };
@@ -416,7 +434,7 @@ export default function Home() {
       <h1>Work Tracker</h1>
 
       <div style={{ border: "1px solid #ccc", padding: 12, marginBottom: 20 }}>
-        <h2>פרופיל משתמש - שלב 1</h2>
+        <h2>פרופיל משתמש</h2>
 
         <div style={{ marginBottom: 10 }}>
           <label>נקודות זיכוי: </label>
@@ -447,34 +465,33 @@ export default function Home() {
             onChange={(e) => setTrainingFundPercent(Number(e.target.value))}
           />
         </div>
-
-        <p>כרגע זה רק מוצג במסך. בשלב הבא נחבר את זה לחישוב הנטו.</p>
       </div>
 
-      <input
-        type="number"
-        value={salary}
-        onChange={(e) => setSalary(Number(e.target.value))}
-        style={{ marginBottom: 12 }}
-      />
+      <div style={{ marginBottom: 16 }}>
+        <label>שכר בסיס לשעה: </label>
+        <input
+          type="number"
+          value={salary}
+          onChange={(e) => setSalary(Number(e.target.value))}
+        />
+      </div>
 
-      <br />
+      <div style={{ marginBottom: 16 }}>
+        {!isWorking ? (
+          <button onClick={startShift}>כניסה</button>
+        ) : (
+          <button onClick={endShift}>יציאה</button>
+        )}
+      </div>
 
-      {!isWorking ? (
-        <button onClick={startShift}>כניסה</button>
-      ) : (
-        <button onClick={endShift}>יציאה</button>
-      )}
-
-      <br />
-      <br />
-
-      <textarea
-        placeholder="הערות למשמרת"
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        style={{ width: 260, height: 60 }}
-      />
+      <div style={{ marginBottom: 16 }}>
+        <textarea
+          placeholder="הערות למשמרת"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          style={{ width: 260, height: 60 }}
+        />
+      </div>
 
       <h2>💰 כסף בזמן אמת: {formatMoney(liveMoney)}</h2>
 
@@ -524,9 +541,9 @@ export default function Home() {
         const c = calculateShift(shift, holidayMap);
 
         const netData = calculateNetSalary(c.totalPay, {
-          creditPoints: 2.25,
-          pensionPercent: 6,
-          trainingFundPercent: 2.5,
+          creditPoints,
+          pensionPercent,
+          trainingFundPercent,
         });
 
         if (editingId === shift.id) {

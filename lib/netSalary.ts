@@ -48,7 +48,6 @@ export function calculateBituachLeumi(salary: number) {
 export function calculateNetSalary(gross: number, profile: TaxProfile) {
   const incomeTax = calculateIncomeTax(gross, profile.creditPoints);
   const bituach = calculateBituachLeumi(gross);
-
   const pension = gross * (profile.pensionPercent / 100);
   const training = gross * (profile.trainingFundPercent / 100);
 
