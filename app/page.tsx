@@ -597,14 +597,13 @@ export default function Home() {
       <h2>💰 כסף בזמן אמת: {formatMoney(liveMoney)}</h2>
 
       <p>
-        מצב מנוע חגים:{" "}
         {holidayStatus === "loading"
-          ? "טוען..."
+          ? "🟡 מחשב..."
           : holidayStatus === "ready"
-          ? "מוכן"
+          ? "🟢 עובד עכשיו"
           : holidayStatus === "error"
-          ? "שגיאה"
-          : "לא התחיל"}
+          ? "🔴 שגיאה"
+          : "⚪ לא פעיל"}
       </p>
 
       <hr />
