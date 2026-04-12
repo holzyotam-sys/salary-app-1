@@ -482,7 +482,6 @@ export default function Home() {
       regularHours,
       overtime125Hours,
       overtime150Hours,
-      gross,
       ...net,
       shiftsCount: monthlyShifts.length,
     };
