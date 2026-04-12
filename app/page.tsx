@@ -157,8 +157,10 @@ function calculateShift(shift: Shift, holidayMap: HolidayMap) {
   }
 
   const regularPay = regularHours * shift.salaryPerHour * baseMultiplier;
-  const overtime125Pay = overtime125Hours * shift.salaryPerHour * 1.25 * baseMultiplier;
-  const overtime150Pay = overtime150Hours * shift.salaryPerHour * 1.5 * baseMultiplier;
+  const overtime125Pay =
+    overtime125Hours * shift.salaryPerHour * 1.25 * baseMultiplier;
+  const overtime150Pay =
+    overtime150Hours * shift.salaryPerHour * 1.5 * baseMultiplier;
   const totalPay = regularPay + overtime125Pay + overtime150Pay;
 
   let dayTypeLabel = "יום רגיל";
@@ -182,8 +184,18 @@ function calculateShift(shift: Shift, holidayMap: HolidayMap) {
   };
 }
 
+function getMonthKey(timestamp: number): string {
+  const d = new Date(timestamp);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getMonthLabel(monthKey: string): string {
+  const [year, month] = monthKey.split("-");
+  return `${month}/${year}`;
+}
+
 export default function Home() {
-  const [salary, setSalary] = useState<number>(50);
+  const [salary, setSalary] = useState<number>(35);
   const [note, setNote] = useState<string>("");
   const [isWorking, setIsWorking] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -193,7 +205,7 @@ export default function Home() {
 
   const [editStart, setEditStart] = useState("");
   const [editEnd, setEditEnd] = useState("");
-  const [editSalary, setEditSalary] = useState<number>(50);
+  const [editSalary, setEditSalary] = useState<number>(35);
   const [editNote, setEditNote] = useState("");
 
   const [manualStart, setManualStart] = useState("");
@@ -208,6 +220,8 @@ export default function Home() {
   const [creditPoints, setCreditPoints] = useState<number>(2.25);
   const [pensionPercent, setPensionPercent] = useState<number>(6);
   const [trainingFundPercent, setTrainingFundPercent] = useState<number>(2.5);
+
+  const [selectedMonth, setSelectedMonth] = useState<string>(getMonthKey(Date.now()));
 
   useEffect(() => {
     const savedShifts = localStorage.getItem("shifts");
@@ -224,7 +238,7 @@ export default function Home() {
       setIsWorking(parsed.isWorking);
       setStartTime(parsed.startTime);
       setNote(parsed.note || "");
-      setSalary(parsed.salary || 50);
+      setSalary(parsed.salary || 35);
     }
 
     if (savedSalary) {
@@ -313,6 +327,17 @@ export default function Home() {
     };
   }, []);
 
+  const availableMonths = useMemo(() => {
+    const unique = Array.from(new Set(shifts.map((shift) => getMonthKey(shift.start))));
+    unique.sort((a, b) => (a < b ? 1 : -1));
+
+    if (!unique.includes(selectedMonth)) {
+      return [selectedMonth, ...unique.filter((m) => m !== selectedMonth)];
+    }
+
+    return unique;
+  }, [shifts, selectedMonth]);
+
   function startShift() {
     setStartTime(Date.now());
     setIsWorking(true);
@@ -379,7 +404,7 @@ export default function Home() {
     setEditingId(null);
     setEditStart("");
     setEditEnd("");
-    setEditSalary(50);
+    setEditSalary(35);
     setEditNote("");
   }
 
@@ -421,6 +446,47 @@ export default function Home() {
 
     return calculateShift(liveShift, holidayMap).totalPay;
   }, [isWorking, startTime, now, salary, note, holidayMap]);
+
+  const shiftsWithCalc = useMemo(() => {
+    return shifts.map((shift) => ({
+      shift,
+      calc: calculateShift(shift, holidayMap),
+    }));
+  }, [shifts, holidayMap]);
+
+  const monthlyShifts = useMemo(() => {
+    return shiftsWithCalc.filter(({ shift }) => getMonthKey(shift.start) === selectedMonth);
+  }, [shiftsWithCalc, selectedMonth]);
+
+  const monthlySummary = useMemo(() => {
+    const totalHours = monthlyShifts.reduce((sum, item) => sum + item.calc.totalHours, 0);
+    const regularHours = monthlyShifts.reduce((sum, item) => sum + item.calc.regularHours, 0);
+    const overtime125Hours = monthlyShifts.reduce(
+      (sum, item) => sum + item.calc.overtime125Hours,
+      0
+    );
+    const overtime150Hours = monthlyShifts.reduce(
+      (sum, item) => sum + item.calc.overtime150Hours,
+      0
+    );
+    const gross = monthlyShifts.reduce((sum, item) => sum + item.calc.totalPay, 0);
+
+    const net = calculateNetSalary(gross, {
+      creditPoints,
+      pensionPercent,
+      trainingFundPercent,
+    });
+
+    return {
+      totalHours,
+      regularHours,
+      overtime125Hours,
+      overtime150Hours,
+      gross,
+      ...net,
+      shiftsCount: monthlyShifts.length,
+    };
+  }, [monthlyShifts, creditPoints, pensionPercent, trainingFundPercent]);
 
   return (
     <main
@@ -465,6 +531,42 @@ export default function Home() {
             onChange={(e) => setTrainingFundPercent(Number(e.target.value))}
           />
         </div>
+      </div>
+
+      <div style={{ border: "1px solid #ccc", padding: 12, marginBottom: 20 }}>
+        <h2>סיכום חודשי</h2>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>חודש נבחר: </label>
+          <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
+            {availableMonths.length === 0 ? (
+              <option value={selectedMonth}>{getMonthLabel(selectedMonth)}</option>
+            ) : (
+              availableMonths.map((month) => (
+                <option key={month} value={month}>
+                  {getMonthLabel(month)}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+
+        <p>כמות משמרות בחודש: {monthlySummary.shiftsCount}</p>
+        <p>סה״כ שעות בחודש: {monthlySummary.totalHours.toFixed(2)}</p>
+        <p>שעות רגילות: {monthlySummary.regularHours.toFixed(2)}</p>
+        <p>שעות 125%: {monthlySummary.overtime125Hours.toFixed(2)}</p>
+        <p>שעות 150%: {monthlySummary.overtime150Hours.toFixed(2)}</p>
+
+        <hr />
+
+        <p>ברוטו חודשי: {formatMoney(monthlySummary.gross)}</p>
+        <p>מס הכנסה חודשי: {formatMoney(monthlySummary.incomeTax)}</p>
+        <p>ביטוח לאומי חודשי: {formatMoney(monthlySummary.bituach)}</p>
+        <p>פנסיה חודשית: {formatMoney(monthlySummary.pension)}</p>
+        <p>השתלמות חודשית: {formatMoney(monthlySummary.training)}</p>
+        <p>
+          <b>נטו חודשי: {formatMoney(monthlySummary.net)}</b>
+        </p>
       </div>
 
       <div style={{ marginBottom: 16 }}>
