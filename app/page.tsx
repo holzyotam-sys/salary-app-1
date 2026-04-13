@@ -511,17 +511,17 @@ export default function Home() {
         ...prev.children,
         {
           id: crypto.randomUUID(),
-          birthYear: new Date().getFullYear(),
+          birthDate: "",
         },
       ],
     }));
   }
 
-  function updateChildYear(id: string, birthYear: number) {
+  function updateChildBirthDate(id: string, birthDate: string) {
     setForm101((prev) => ({
       ...prev,
       children: prev.children.map((child) =>
-        child.id === id ? { ...child, birthYear } : child
+        child.id === id ? { ...child, birthDate } : child
       ),
     }));
   }
@@ -754,6 +754,21 @@ export default function Home() {
           </select>
         </div>
 
+        <div style={{ marginBottom: 10 }}>
+          <label>הכנסה חודשית משוערת של בן/בת זוג</label>
+          <br />
+          <input
+            type="number"
+            value={form101.spouseMonthlyIncome}
+            onChange={(e) =>
+              setForm101((prev) => ({
+                ...prev,
+                spouseMonthlyIncome: Number(e.target.value),
+              }))
+            }
+          />
+        </div>
+
         <div style={{ marginBottom: 12 }}>
           <label>הורה יחיד</label>
           <br />
@@ -794,10 +809,10 @@ export default function Home() {
               >
                 <span>ילד {index + 1}</span>
                 <input
-                  type="number"
-                  value={child.birthYear}
+                  type="date"
+                  value={child.birthDate}
                   onChange={(e) =>
-                    updateChildYear(child.id, Number(e.target.value))
+                    updateChildBirthDate(child.id, e.target.value)
                   }
                 />
                 <button type="button" onClick={() => removeChild(child.id)}>
@@ -807,6 +822,84 @@ export default function Home() {
             ))}
           </div>
         </div>
+
+        {form101.children.length > 0 && (
+          <>
+            <div style={{ marginBottom: 10 }}>
+              <label>מי מקבל נקודות ילדים</label>
+              <br />
+              <select
+                value={form101.childPointsReceiver}
+                onChange={(e) =>
+                  setForm101((prev) => ({
+                    ...prev,
+                    childPointsReceiver: e.target.value as Form101Data["childPointsReceiver"],
+                  }))
+                }
+              >
+                <option value="me">אני</option>
+                <option value="spouse">בן/בת זוג</option>
+                <option value="split">חלוקה</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label>איפה גרים הילדים</label>
+              <br />
+              <select
+                value={form101.childrenLivingWith}
+                onChange={(e) =>
+                  setForm101((prev) => ({
+                    ...prev,
+                    childrenLivingWith: e.target.value as Form101Data["childrenLivingWith"],
+                  }))
+                }
+              >
+                <option value="me">אצלי</option>
+                <option value="other">אצל ההורה השני</option>
+                <option value="shared">משמורת משותפת</option>
+              </select>
+            </div>
+          </>
+        )}
+
+        {form101.maritalStatus === "divorced" && (
+          <>
+            <div style={{ marginBottom: 10 }}>
+              <label>משלם מזונות</label>
+              <br />
+              <select
+                value={form101.paysAlimony ? "yes" : "no"}
+                onChange={(e) =>
+                  setForm101((prev) => ({
+                    ...prev,
+                    paysAlimony: e.target.value === "yes",
+                  }))
+                }
+              >
+                <option value="no">לא</option>
+                <option value="yes">כן</option>
+              </select>
+            </div>
+
+            {form101.paysAlimony && (
+              <div style={{ marginBottom: 10 }}>
+                <label>סכום מזונות חודשי</label>
+                <br />
+                <input
+                  type="number"
+                  value={form101.alimonyAmount}
+                  onChange={(e) =>
+                    setForm101((prev) => ({
+                      ...prev,
+                      alimonyAmount: Number(e.target.value),
+                    }))
+                  }
+                />
+              </div>
+            )}
+          </>
+        )}
 
         <div style={{ marginBottom: 10 }}>
           <label>אחוז פנסיה עובד</label>
@@ -883,8 +976,13 @@ export default function Home() {
               : "אלמן/ה"}
           </p>
           <p>בן/בת זוג עובד/ת: {form101.spouseWorks ? "כן" : "לא"}</p>
+          <p>הכנסת בן/בת זוג: ₪{form101.spouseMonthlyIncome}</p>
           <p>הורה יחיד: {form101.singleParent ? "כן" : "לא"}</p>
           <p>מספר ילדים: {form101.children.length}</p>
+          <p>נקודות ילדים אצל: {form101.childPointsReceiver}</p>
+          <p>מגורי ילדים: {form101.childrenLivingWith}</p>
+          <p>משלם מזונות: {form101.paysAlimony ? "כן" : "לא"}</p>
+          {form101.paysAlimony && <p>סכום מזונות: ₪{form101.alimonyAmount}</p>}
           <p>נקודות זיכוי מחושבות: {trackerProfile.creditPoints}</p>
           <p>אחוז פנסיה עובד: {trackerProfile.pensionPercent}%</p>
           <p>אחוז קרן השתלמות עובד: {trackerProfile.trainingFundPercent}%</p>
