@@ -2,6 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { calculateNetSalary } from "@/lib/netSalary";
+import {
+  buildTrackerProfile,
+  calculateCreditPoints,
+  createEmptyForm101,
+  type ChildInfo,
+  type Form101Data,
+} from "@/lib/taxProfile";
 
 type Shift = {
   id: string;
@@ -27,20 +34,6 @@ type UserAccount = {
   firstName: string;
   lastName: string;
   email: string;
-};
-
-type ChildInfo = {
-  id: string;
-  birthYear: number;
-};
-
-type Form101Data = {
-  gender: "male" | "female";
-  maritalStatus: "single" | "married" | "divorced" | "widowed";
-  children: ChildInfo[];
-  creditPoints: number;
-  pensionPercent: number;
-  trainingFundPercent: number;
 };
 
 type AppStep = "account" | "form101" | "tracker";
@@ -239,17 +232,6 @@ function createEmptyAccount(): UserAccount {
   };
 }
 
-function createEmptyForm101(): Form101Data {
-  return {
-    gender: "male",
-    maritalStatus: "single",
-    children: [],
-    creditPoints: 2.25,
-    pensionPercent: 6,
-    trainingFundPercent: 2.5,
-  };
-}
-
 function fullName(account: UserAccount) {
   return `${account.firstName} ${account.lastName}`.trim();
 }
@@ -412,7 +394,7 @@ export default function Home() {
   }, [account]);
 
   const form101Complete = useMemo(() => {
-    return form101.creditPoints >= 0;
+    return form101.pensionPercent >= 0 && form101.trainingFundPercent >= 0;
   }, [form101]);
 
   const initialStep: AppStep = !accountComplete
@@ -426,8 +408,6 @@ export default function Home() {
       setCurrentView("account");
     } else if (initialStep === "form101") {
       setCurrentView("form101");
-    } else {
-      setCurrentView((prev) => prev);
     }
   }, [initialStep]);
 
@@ -553,6 +533,10 @@ export default function Home() {
     }));
   }
 
+  const trackerProfile = useMemo(() => {
+    return buildTrackerProfile(form101);
+  }, [form101]);
+
   const liveMoney = useMemo(() => {
     if (!isWorking || !startTime) return 0;
 
@@ -592,9 +576,9 @@ export default function Home() {
     const gross = monthlyShifts.reduce((sum, item) => sum + item.calc.totalPay, 0);
 
     const net = calculateNetSalary(gross, {
-      creditPoints: form101.creditPoints,
-      pensionPercent: form101.pensionPercent,
-      trainingFundPercent: form101.trainingFundPercent,
+      creditPoints: trackerProfile.creditPoints,
+      pensionPercent: trackerProfile.pensionPercent,
+      trainingFundPercent: trackerProfile.trainingFundPercent,
     });
 
     return {
@@ -605,7 +589,7 @@ export default function Home() {
       ...net,
       shiftsCount: monthlyShifts.length,
     };
-  }, [monthlyShifts, form101]);
+  }, [monthlyShifts, trackerProfile]);
 
   function renderTopNav() {
     if (initialStep === "account") return null;
@@ -698,7 +682,24 @@ export default function Home() {
   function renderForm101View() {
     return (
       <div style={{ border: "1px solid #ccc", padding: 16 }}>
-        <h2>שלב 2 — טופס 101</h2>
+        <h2>שלב 2 — טופס 101 חכם</h2>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>תושב ישראל</label>
+          <br />
+          <select
+            value={form101.israelResident ? "yes" : "no"}
+            onChange={(e) =>
+              setForm101((prev) => ({
+                ...prev,
+                israelResident: e.target.value === "yes",
+              }))
+            }
+          >
+            <option value="yes">כן</option>
+            <option value="no">לא</option>
+          </select>
+        </div>
 
         <div style={{ marginBottom: 10 }}>
           <label>מין</label>
@@ -736,6 +737,40 @@ export default function Home() {
           </select>
         </div>
 
+        <div style={{ marginBottom: 10 }}>
+          <label>בן/בת זוג עובד/ת</label>
+          <br />
+          <select
+            value={form101.spouseWorks ? "yes" : "no"}
+            onChange={(e) =>
+              setForm101((prev) => ({
+                ...prev,
+                spouseWorks: e.target.value === "yes",
+              }))
+            }
+          >
+            <option value="no">לא</option>
+            <option value="yes">כן</option>
+          </select>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>הורה יחיד</label>
+          <br />
+          <select
+            value={form101.singleParent ? "yes" : "no"}
+            onChange={(e) =>
+              setForm101((prev) => ({
+                ...prev,
+                singleParent: e.target.value === "yes",
+              }))
+            }
+          >
+            <option value="no">לא</option>
+            <option value="yes">כן</option>
+          </select>
+        </div>
+
         <div style={{ marginBottom: 12 }}>
           <label>ילדים</label>
           <br />
@@ -746,7 +781,7 @@ export default function Home() {
           <div style={{ marginTop: 10 }}>
             {form101.children.length === 0 && <p>לא הוזנו ילדים</p>}
 
-            {form101.children.map((child, index) => (
+            {form101.children.map((child: ChildInfo, index: number) => (
               <div
                 key={child.id}
                 style={{
@@ -771,22 +806,6 @@ export default function Home() {
               </div>
             ))}
           </div>
-        </div>
-
-        <div style={{ marginBottom: 10 }}>
-          <label>נקודות זיכוי</label>
-          <br />
-          <input
-            type="number"
-            step="0.25"
-            value={form101.creditPoints}
-            onChange={(e) =>
-              setForm101((prev) => ({
-                ...prev,
-                creditPoints: Number(e.target.value),
-              }))
-            }
-          />
         </div>
 
         <div style={{ marginBottom: 10 }}>
@@ -821,6 +840,12 @@ export default function Home() {
           />
         </div>
 
+        <hr />
+
+        <p>
+          <b>נקודות זיכוי מחושבות: {calculateCreditPoints(form101)}</b>
+        </p>
+
         <button
           onClick={() => {
             if (!form101Complete) return;
@@ -845,6 +870,7 @@ export default function Home() {
 
         <div style={{ border: "1px solid #ccc", padding: 12, marginBottom: 20 }}>
           <h2>טופס 101 — תצוגה בלבד</h2>
+          <p>תושב ישראל: {form101.israelResident ? "כן" : "לא"}</p>
           <p>מין: {form101.gender === "male" ? "גבר" : "אישה"}</p>
           <p>
             מצב משפחתי:{" "}
@@ -856,10 +882,12 @@ export default function Home() {
               ? "גרוש/ה"
               : "אלמן/ה"}
           </p>
+          <p>בן/בת זוג עובד/ת: {form101.spouseWorks ? "כן" : "לא"}</p>
+          <p>הורה יחיד: {form101.singleParent ? "כן" : "לא"}</p>
           <p>מספר ילדים: {form101.children.length}</p>
-          <p>נקודות זיכוי: {form101.creditPoints}</p>
-          <p>אחוז פנסיה עובד: {form101.pensionPercent}%</p>
-          <p>אחוז קרן השתלמות עובד: {form101.trainingFundPercent}%</p>
+          <p>נקודות זיכוי מחושבות: {trackerProfile.creditPoints}</p>
+          <p>אחוז פנסיה עובד: {trackerProfile.pensionPercent}%</p>
+          <p>אחוז קרן השתלמות עובד: {trackerProfile.trainingFundPercent}%</p>
           <p style={{ marginTop: 10 }}>
             שינוי נתונים מתבצע דרך דפי "פרטי משתמש" ו-"טופס 101" בלבד.
           </p>
@@ -997,9 +1025,9 @@ export default function Home() {
           const c = calculateShift(shift, holidayMap);
 
           const netData = calculateNetSalary(c.totalPay, {
-            creditPoints: form101.creditPoints,
-            pensionPercent: form101.pensionPercent,
-            trainingFundPercent: form101.trainingFundPercent,
+            creditPoints: trackerProfile.creditPoints,
+            pensionPercent: trackerProfile.pensionPercent,
+            trainingFundPercent: trackerProfile.trainingFundPercent,
           });
 
           if (editingId === shift.id) {
