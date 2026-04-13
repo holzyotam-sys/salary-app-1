@@ -57,6 +57,21 @@ function formatDateTimeLocalValue(timestamp: number): string {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+function formatDateOnlyValue(timestamp: number): string {
+  const d = new Date(timestamp);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimeInputValue(timestamp: number): string {
+  const d = new Date(timestamp);
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
 function toDateKey(timestamp: number): string {
   const d = new Date(timestamp);
   const year = d.getFullYear();
@@ -132,6 +147,10 @@ async function fetchHebcalHolidays(year: number): Promise<HolidayMap> {
   return buildHolidayMapFromHebcal(data.items ?? []);
 }
 
+function buildTimestamp(dateValue: string, timeValue: string): number {
+  return new Date(`${dateValue}T${timeValue}`).getTime();
+}
+
 function calculateShift(shift: Shift, holidayMap: HolidayMap) {
   const totalHours = Math.max(0, (shift.end - shift.start) / 1000 / 60 / 60);
 
@@ -195,6 +214,8 @@ function getMonthLabel(monthKey: string): string {
 }
 
 export default function Home() {
+  const nowDate = new Date();
+
   const [salary, setSalary] = useState<number>(35);
   const [note, setNote] = useState<string>("");
   const [isWorking, setIsWorking] = useState(false);
@@ -208,8 +229,9 @@ export default function Home() {
   const [editSalary, setEditSalary] = useState<number>(35);
   const [editNote, setEditNote] = useState("");
 
-  const [manualStart, setManualStart] = useState("");
-  const [manualEnd, setManualEnd] = useState("");
+  const [manualDate, setManualDate] = useState(formatDateOnlyValue(nowDate.getTime()));
+  const [manualStartTime, setManualStartTime] = useState("08:00");
+  const [manualEndTime, setManualEndTime] = useState("17:00");
   const [manualNote, setManualNote] = useState("");
 
   const [holidayMap, setHolidayMap] = useState<HolidayMap>({});
@@ -364,10 +386,10 @@ export default function Home() {
   }
 
   function addManualShift() {
-    if (!manualStart || !manualEnd) return;
+    if (!manualDate || !manualStartTime || !manualEndTime) return;
 
-    const start = new Date(manualStart).getTime();
-    const end = new Date(manualEnd).getTime();
+    const start = buildTimestamp(manualDate, manualStartTime);
+    const end = buildTimestamp(manualDate, manualEndTime);
 
     if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return;
 
@@ -380,8 +402,6 @@ export default function Home() {
     };
 
     setShifts((prev) => [newShift, ...prev]);
-    setManualStart("");
-    setManualEnd("");
     setManualNote("");
   }
 
@@ -596,32 +616,46 @@ export default function Home() {
 
       <h2>💰 כסף בזמן אמת: {formatMoney(liveMoney)}</h2>
 
-      <p>
-        {holidayStatus === "loading"
-          ? "🟡 מחשב..."
-          : holidayStatus === "ready"
-          ? "🟢 עובד עכשיו"
-          : holidayStatus === "error"
-          ? "🔴 שגיאה"
-          : "⚪ לא פעיל"}
-      </p>
+      <p>{isWorking ? "🟢 עובד עכשיו" : "⚪ לא עובד"}</p>
 
       <hr />
 
       <h2>➕ הוספה ידנית</h2>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-        <input
-          type="datetime-local"
-          value={manualStart}
-          onChange={(e) => setManualStart(e.target.value)}
-        />
-        <input
-          type="datetime-local"
-          value={manualEnd}
-          onChange={(e) => setManualEnd(e.target.value)}
-        />
-        <button onClick={addManualShift}>הוסף</button>
+        <div>
+          <label>תאריך</label>
+          <br />
+          <input
+            type="date"
+            value={manualDate}
+            onChange={(e) => setManualDate(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label>שעת התחלה</label>
+          <br />
+          <input
+            type="time"
+            value={manualStartTime}
+            onChange={(e) => setManualStartTime(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label>שעת סיום</label>
+          <br />
+          <input
+            type="time"
+            value={manualEndTime}
+            onChange={(e) => setManualEndTime(e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: "flex", alignItems: "end" }}>
+          <button onClick={addManualShift}>הוסף</button>
+        </div>
       </div>
 
       <textarea
