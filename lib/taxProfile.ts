@@ -1,6 +1,8 @@
 export type ChildInfo = {
   id: string;
-  birthDate: string; // YYYY-MM-DD
+  birthDay: number;
+  birthMonth: number;
+  birthYear: number;
 };
 
 export type Form101Data = {
@@ -37,11 +39,36 @@ export function createEmptyForm101(): Form101Data {
   };
 }
 
-function getAgeOnDate(birthDate: string, onDate = new Date()): number {
-  if (!birthDate) return 0;
+function isValidChildDate(child: ChildInfo): boolean {
+  if (
+    !child.birthYear ||
+    !child.birthMonth ||
+    !child.birthDay ||
+    child.birthMonth < 1 ||
+    child.birthMonth > 12 ||
+    child.birthDay < 1 ||
+    child.birthDay > 31
+  ) {
+    return false;
+  }
 
-  const birth = new Date(birthDate);
-  if (Number.isNaN(birth.getTime())) return 0;
+  const testDate = new Date(child.birthYear, child.birthMonth - 1, child.birthDay);
+
+  return (
+    testDate.getFullYear() === child.birthYear &&
+    testDate.getMonth() === child.birthMonth - 1 &&
+    testDate.getDate() === child.birthDay
+  );
+}
+
+function getChildBirthDate(child: ChildInfo): Date | null {
+  if (!isValidChildDate(child)) return null;
+  return new Date(child.birthYear, child.birthMonth - 1, child.birthDay);
+}
+
+function getAgeOnDate(child: ChildInfo, onDate = new Date()): number {
+  const birth = getChildBirthDate(child);
+  if (!birth) return 0;
 
   let age = onDate.getFullYear() - birth.getFullYear();
   const monthDiff = onDate.getMonth() - birth.getMonth();
@@ -64,7 +91,7 @@ function calculateChildrenCreditPoints(form: Form101Data, today = new Date()): n
   }
 
   for (const child of form.children) {
-    const age = getAgeOnDate(child.birthDate, today);
+    const age = getAgeOnDate(child, today);
 
     if (age < 0) continue;
 
