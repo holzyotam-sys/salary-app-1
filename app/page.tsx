@@ -236,6 +236,25 @@ function fullName(account: UserAccount) {
   return `${account.firstName} ${account.lastName}`.trim();
 }
 
+function monthLabel(month: number): string {
+  const labels = [
+    "",
+    "ינואר",
+    "פברואר",
+    "מרץ",
+    "אפריל",
+    "מאי",
+    "יוני",
+    "יולי",
+    "אוגוסט",
+    "ספטמבר",
+    "אוקטובר",
+    "נובמבר",
+    "דצמבר",
+  ];
+  return labels[month] ?? "";
+}
+
 export default function Home() {
   const nowDate = new Date();
   const today = formatDateOnlyValue(nowDate.getTime());
@@ -511,17 +530,23 @@ export default function Home() {
         ...prev.children,
         {
           id: crypto.randomUUID(),
-          birthDate: "",
+          birthDay: 1,
+          birthMonth: 1,
+          birthYear: new Date().getFullYear(),
         },
       ],
     }));
   }
 
-  function updateChildBirthDate(id: string, birthDate: string) {
+  function updateChildField(
+    id: string,
+    field: "birthDay" | "birthMonth" | "birthYear",
+    value: number
+  ) {
     setForm101((prev) => ({
       ...prev,
       children: prev.children.map((child) =>
-        child.id === id ? { ...child, birthDate } : child
+        child.id === id ? { ...child, [field]: value } : child
       ),
     }));
   }
@@ -755,7 +780,7 @@ export default function Home() {
         </div>
 
         <div style={{ marginBottom: 10 }}>
-          <label>הכנסה חודשית משוערת של בן/בת זוג</label>
+          <label>הכנסה חודשית משוערת של בן/בת זוג (ברוטו)</label>
           <br />
           <input
             type="number"
@@ -800,24 +825,81 @@ export default function Home() {
               <div
                 key={child.id}
                 style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  marginBottom: 8,
-                  flexWrap: "wrap",
+                  border: "1px solid #ddd",
+                  padding: 10,
+                  marginBottom: 10,
                 }}
               >
-                <span>ילד {index + 1}</span>
-                <input
-                  type="date"
-                  value={child.birthDate}
-                  onChange={(e) =>
-                    updateChildBirthDate(child.id, e.target.value)
-                  }
-                />
-                <button type="button" onClick={() => removeChild(child.id)}>
-                  מחק
-                </button>
+                <div style={{ marginBottom: 8 }}>ילד {index + 1}</div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    alignItems: "end",
+                  }}
+                >
+                  <div>
+                    <label>יום</label>
+                    <br />
+                    <select
+                      value={child.birthDay}
+                      onChange={(e) =>
+                        updateChildField(child.id, "birthDay", Number(e.target.value))
+                      }
+                    >
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                        <option key={day} value={day}>
+                          {day}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label>חודש</label>
+                    <br />
+                    <select
+                      value={child.birthMonth}
+                      onChange={(e) =>
+                        updateChildField(child.id, "birthMonth", Number(e.target.value))
+                      }
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                        <option key={month} value={month}>
+                          {monthLabel(month)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label>שנה</label>
+                    <br />
+                    <select
+                      value={child.birthYear}
+                      onChange={(e) =>
+                        updateChildField(child.id, "birthYear", Number(e.target.value))
+                      }
+                    >
+                      {Array.from(
+                        { length: new Date().getFullYear() - 1980 + 1 },
+                        (_, i) => new Date().getFullYear() - i
+                      ).map((year) => (
+                        <option key={year} value={year}>
+                          {year}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <button type="button" onClick={() => removeChild(child.id)}>
+                      מחק
+                    </button>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -976,7 +1058,7 @@ export default function Home() {
               : "אלמן/ה"}
           </p>
           <p>בן/בת זוג עובד/ת: {form101.spouseWorks ? "כן" : "לא"}</p>
-          <p>הכנסת בן/בת זוג: ₪{form101.spouseMonthlyIncome}</p>
+          <p>הכנסת בן/בת זוג (ברוטו): ₪{form101.spouseMonthlyIncome}</p>
           <p>הורה יחיד: {form101.singleParent ? "כן" : "לא"}</p>
           <p>מספר ילדים: {form101.children.length}</p>
           <p>נקודות ילדים אצל: {form101.childPointsReceiver}</p>
