@@ -65,13 +65,6 @@ function formatDateOnlyValue(timestamp: number): string {
   return `${year}-${month}-${day}`;
 }
 
-function formatTimeInputValue(timestamp: number): string {
-  const d = new Date(timestamp);
-  const hours = String(d.getHours()).padStart(2, "0");
-  const minutes = String(d.getMinutes()).padStart(2, "0");
-  return `${hours}:${minutes}`;
-}
-
 function toDateKey(timestamp: number): string {
   const d = new Date(timestamp);
   const year = d.getFullYear();
@@ -215,6 +208,7 @@ function getMonthLabel(monthKey: string): string {
 
 export default function Home() {
   const nowDate = new Date();
+  const today = formatDateOnlyValue(nowDate.getTime());
 
   const [salary, setSalary] = useState<number>(35);
   const [note, setNote] = useState<string>("");
@@ -229,8 +223,9 @@ export default function Home() {
   const [editSalary, setEditSalary] = useState<number>(35);
   const [editNote, setEditNote] = useState("");
 
-  const [manualDate, setManualDate] = useState(formatDateOnlyValue(nowDate.getTime()));
+  const [manualStartDate, setManualStartDate] = useState(today);
   const [manualStartTime, setManualStartTime] = useState("08:00");
+  const [manualEndDate, setManualEndDate] = useState(today);
   const [manualEndTime, setManualEndTime] = useState("17:00");
   const [manualNote, setManualNote] = useState("");
 
@@ -386,10 +381,10 @@ export default function Home() {
   }
 
   function addManualShift() {
-    if (!manualDate || !manualStartTime || !manualEndTime) return;
+    if (!manualStartDate || !manualStartTime || !manualEndDate || !manualEndTime) return;
 
-    const start = buildTimestamp(manualDate, manualStartTime);
-    const end = buildTimestamp(manualDate, manualEndTime);
+    const start = buildTimestamp(manualStartDate, manualStartTime);
+    const end = buildTimestamp(manualEndDate, manualEndTime);
 
     if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return;
 
@@ -624,12 +619,12 @@ export default function Home() {
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
         <div>
-          <label>תאריך</label>
+          <label>תאריך התחלה</label>
           <br />
           <input
             type="date"
-            value={manualDate}
-            onChange={(e) => setManualDate(e.target.value)}
+            value={manualStartDate}
+            onChange={(e) => setManualStartDate(e.target.value)}
           />
         </div>
 
@@ -640,6 +635,16 @@ export default function Home() {
             type="time"
             value={manualStartTime}
             onChange={(e) => setManualStartTime(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label>תאריך סיום</label>
+          <br />
+          <input
+            type="date"
+            value={manualEndDate}
+            onChange={(e) => setManualEndDate(e.target.value)}
           />
         </div>
 
