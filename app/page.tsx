@@ -22,6 +22,30 @@ type HebcalResponse = {
   items?: HebcalItem[];
 };
 
+type UserAccount = {
+  phone: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+};
+
+type ChildInfo = {
+  id: string;
+  birthYear: number;
+};
+
+type Form101Data = {
+  gender: "male" | "female";
+  maritalStatus: "single" | "married" | "divorced" | "widowed";
+  children: ChildInfo[];
+  creditPoints: number;
+  pensionPercent: number;
+  trainingFundPercent: number;
+};
+
+type AppStep = "account" | "form101" | "tracker";
+type AppView = "account" | "form101" | "tracker";
+
 function formatMoney(value: number): string {
   return `₪${value.toFixed(2)}`;
 }
@@ -206,6 +230,30 @@ function getMonthLabel(monthKey: string): string {
   return `${month}/${year}`;
 }
 
+function createEmptyAccount(): UserAccount {
+  return {
+    phone: "",
+    firstName: "",
+    lastName: "",
+    email: "",
+  };
+}
+
+function createEmptyForm101(): Form101Data {
+  return {
+    gender: "male",
+    maritalStatus: "single",
+    children: [],
+    creditPoints: 2.25,
+    pensionPercent: 6,
+    trainingFundPercent: 2.5,
+  };
+}
+
+function fullName(account: UserAccount) {
+  return `${account.firstName} ${account.lastName}`.trim();
+}
+
 export default function Home() {
   const nowDate = new Date();
   const today = formatDateOnlyValue(nowDate.getTime());
@@ -234,17 +282,18 @@ export default function Home() {
     "idle"
   );
 
-  const [creditPoints, setCreditPoints] = useState<number>(2.25);
-  const [pensionPercent, setPensionPercent] = useState<number>(6);
-  const [trainingFundPercent, setTrainingFundPercent] = useState<number>(2.5);
+  const [account, setAccount] = useState<UserAccount>(createEmptyAccount());
+  const [form101, setForm101] = useState<Form101Data>(createEmptyForm101());
 
+  const [currentView, setCurrentView] = useState<AppView>("tracker");
   const [selectedMonth, setSelectedMonth] = useState<string>(getMonthKey(Date.now()));
 
   useEffect(() => {
     const savedShifts = localStorage.getItem("shifts");
     const savedWorking = localStorage.getItem("workingShift");
     const savedSalary = localStorage.getItem("defaultSalary");
-    const savedProfile = localStorage.getItem("salaryProfile");
+    const savedAccount = localStorage.getItem("userAccount");
+    const savedForm101 = localStorage.getItem("form101Data");
 
     if (savedShifts) {
       setShifts(JSON.parse(savedShifts));
@@ -262,11 +311,12 @@ export default function Home() {
       setSalary(Number(savedSalary));
     }
 
-    if (savedProfile) {
-      const parsed = JSON.parse(savedProfile);
-      setCreditPoints(parsed.creditPoints ?? 2.25);
-      setPensionPercent(parsed.pensionPercent ?? 6);
-      setTrainingFundPercent(parsed.trainingFundPercent ?? 2.5);
+    if (savedAccount) {
+      setAccount(JSON.parse(savedAccount));
+    }
+
+    if (savedForm101) {
+      setForm101(JSON.parse(savedForm101));
     }
   }, []);
 
@@ -291,15 +341,12 @@ export default function Home() {
   }, [isWorking, startTime, note, salary]);
 
   useEffect(() => {
-    localStorage.setItem(
-      "salaryProfile",
-      JSON.stringify({
-        creditPoints,
-        pensionPercent,
-        trainingFundPercent,
-      })
-    );
-  }, [creditPoints, pensionPercent, trainingFundPercent]);
+    localStorage.setItem("userAccount", JSON.stringify(account));
+  }, [account]);
+
+  useEffect(() => {
+    localStorage.setItem("form101Data", JSON.stringify(form101));
+  }, [form101]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -354,6 +401,35 @@ export default function Home() {
 
     return unique;
   }, [shifts, selectedMonth]);
+
+  const accountComplete = useMemo(() => {
+    return Boolean(
+      account.phone.trim() &&
+        account.firstName.trim() &&
+        account.lastName.trim() &&
+        account.email.trim()
+    );
+  }, [account]);
+
+  const form101Complete = useMemo(() => {
+    return form101.creditPoints >= 0;
+  }, [form101]);
+
+  const initialStep: AppStep = !accountComplete
+    ? "account"
+    : !form101Complete
+    ? "form101"
+    : "tracker";
+
+  useEffect(() => {
+    if (initialStep === "account") {
+      setCurrentView("account");
+    } else if (initialStep === "form101") {
+      setCurrentView("form101");
+    } else {
+      setCurrentView((prev) => prev);
+    }
+  }, [initialStep]);
 
   function startShift() {
     setStartTime(Date.now());
@@ -448,6 +524,35 @@ export default function Home() {
     cancelEdit();
   }
 
+  function addChild() {
+    setForm101((prev) => ({
+      ...prev,
+      children: [
+        ...prev.children,
+        {
+          id: crypto.randomUUID(),
+          birthYear: new Date().getFullYear(),
+        },
+      ],
+    }));
+  }
+
+  function updateChildYear(id: string, birthYear: number) {
+    setForm101((prev) => ({
+      ...prev,
+      children: prev.children.map((child) =>
+        child.id === id ? { ...child, birthYear } : child
+      ),
+    }));
+  }
+
+  function removeChild(id: string) {
+    setForm101((prev) => ({
+      ...prev,
+      children: prev.children.filter((child) => child.id !== id),
+    }));
+  }
+
   const liveMoney = useMemo(() => {
     if (!isWorking || !startTime) return 0;
 
@@ -487,9 +592,9 @@ export default function Home() {
     const gross = monthlyShifts.reduce((sum, item) => sum + item.calc.totalPay, 0);
 
     const net = calculateNetSalary(gross, {
-      creditPoints,
-      pensionPercent,
-      trainingFundPercent,
+      creditPoints: form101.creditPoints,
+      pensionPercent: form101.pensionPercent,
+      trainingFundPercent: form101.trainingFundPercent,
     });
 
     return {
@@ -500,7 +605,510 @@ export default function Home() {
       ...net,
       shiftsCount: monthlyShifts.length,
     };
-  }, [monthlyShifts, creditPoints, pensionPercent, trainingFundPercent]);
+  }, [monthlyShifts, form101]);
+
+  function renderTopNav() {
+    if (initialStep === "account") return null;
+    if (initialStep === "form101" && currentView !== "form101") return null;
+
+    return (
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          marginBottom: 20,
+          flexWrap: "wrap",
+        }}
+      >
+        <button onClick={() => setCurrentView("account")}>פרטי משתמש</button>
+        <button onClick={() => setCurrentView("form101")}>טופס 101</button>
+        {accountComplete && form101Complete && (
+          <button onClick={() => setCurrentView("tracker")}>מעקב עבודה</button>
+        )}
+      </div>
+    );
+  }
+
+  function renderAccountView() {
+    return (
+      <div style={{ border: "1px solid #ccc", padding: 16 }}>
+        <h2>שלב 1 — יצירת משתמש</h2>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>מספר טלפון</label>
+          <br />
+          <input
+            type="tel"
+            value={account.phone}
+            onChange={(e) =>
+              setAccount((prev) => ({ ...prev, phone: e.target.value }))
+            }
+          />
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>שם פרטי</label>
+          <br />
+          <input
+            type="text"
+            value={account.firstName}
+            onChange={(e) =>
+              setAccount((prev) => ({ ...prev, firstName: e.target.value }))
+            }
+          />
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>שם משפחה</label>
+          <br />
+          <input
+            type="text"
+            value={account.lastName}
+            onChange={(e) =>
+              setAccount((prev) => ({ ...prev, lastName: e.target.value }))
+            }
+          />
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>מייל</label>
+          <br />
+          <input
+            type="email"
+            value={account.email}
+            onChange={(e) =>
+              setAccount((prev) => ({ ...prev, email: e.target.value }))
+            }
+          />
+        </div>
+
+        <button
+          onClick={() => {
+            if (!accountComplete) return;
+            setCurrentView("form101");
+          }}
+          disabled={!accountComplete}
+        >
+          המשך לטופס 101
+        </button>
+      </div>
+    );
+  }
+
+  function renderForm101View() {
+    return (
+      <div style={{ border: "1px solid #ccc", padding: 16 }}>
+        <h2>שלב 2 — טופס 101</h2>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>מין</label>
+          <br />
+          <select
+            value={form101.gender}
+            onChange={(e) =>
+              setForm101((prev) => ({
+                ...prev,
+                gender: e.target.value as Form101Data["gender"],
+              }))
+            }
+          >
+            <option value="male">גבר</option>
+            <option value="female">אישה</option>
+          </select>
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>מצב משפחתי</label>
+          <br />
+          <select
+            value={form101.maritalStatus}
+            onChange={(e) =>
+              setForm101((prev) => ({
+                ...prev,
+                maritalStatus: e.target.value as Form101Data["maritalStatus"],
+              }))
+            }
+          >
+            <option value="single">רווק/ה</option>
+            <option value="married">נשוי/אה</option>
+            <option value="divorced">גרוש/ה</option>
+            <option value="widowed">אלמן/ה</option>
+          </select>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>ילדים</label>
+          <br />
+          <button onClick={addChild} type="button">
+            + הוסף ילד
+          </button>
+
+          <div style={{ marginTop: 10 }}>
+            {form101.children.length === 0 && <p>לא הוזנו ילדים</p>}
+
+            {form101.children.map((child, index) => (
+              <div
+                key={child.id}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  marginBottom: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span>ילד {index + 1}</span>
+                <input
+                  type="number"
+                  value={child.birthYear}
+                  onChange={(e) =>
+                    updateChildYear(child.id, Number(e.target.value))
+                  }
+                />
+                <button type="button" onClick={() => removeChild(child.id)}>
+                  מחק
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>נקודות זיכוי</label>
+          <br />
+          <input
+            type="number"
+            step="0.25"
+            value={form101.creditPoints}
+            onChange={(e) =>
+              setForm101((prev) => ({
+                ...prev,
+                creditPoints: Number(e.target.value),
+              }))
+            }
+          />
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>אחוז פנסיה עובד</label>
+          <br />
+          <input
+            type="number"
+            step="0.1"
+            value={form101.pensionPercent}
+            onChange={(e) =>
+              setForm101((prev) => ({
+                ...prev,
+                pensionPercent: Number(e.target.value),
+              }))
+            }
+          />
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label>אחוז קרן השתלמות עובד</label>
+          <br />
+          <input
+            type="number"
+            step="0.1"
+            value={form101.trainingFundPercent}
+            onChange={(e) =>
+              setForm101((prev) => ({
+                ...prev,
+                trainingFundPercent: Number(e.target.value),
+              }))
+            }
+          />
+        </div>
+
+        <button
+          onClick={() => {
+            if (!form101Complete) return;
+            setCurrentView("tracker");
+          }}
+        >
+          המשך למעקב עבודה
+        </button>
+      </div>
+    );
+  }
+
+  function renderTrackerView() {
+    return (
+      <>
+        <div style={{ border: "1px solid #ccc", padding: 12, marginBottom: 20 }}>
+          <h2>סיכום משתמש</h2>
+          <p>שם: {fullName(account) || "-"}</p>
+          <p>טלפון: {account.phone || "-"}</p>
+          <p>מייל: {account.email || "-"}</p>
+        </div>
+
+        <div style={{ border: "1px solid #ccc", padding: 12, marginBottom: 20 }}>
+          <h2>טופס 101 — תצוגה בלבד</h2>
+          <p>מין: {form101.gender === "male" ? "גבר" : "אישה"}</p>
+          <p>
+            מצב משפחתי:{" "}
+            {form101.maritalStatus === "single"
+              ? "רווק/ה"
+              : form101.maritalStatus === "married"
+              ? "נשוי/אה"
+              : form101.maritalStatus === "divorced"
+              ? "גרוש/ה"
+              : "אלמן/ה"}
+          </p>
+          <p>מספר ילדים: {form101.children.length}</p>
+          <p>נקודות זיכוי: {form101.creditPoints}</p>
+          <p>אחוז פנסיה עובד: {form101.pensionPercent}%</p>
+          <p>אחוז קרן השתלמות עובד: {form101.trainingFundPercent}%</p>
+          <p style={{ marginTop: 10 }}>
+            שינוי נתונים מתבצע דרך דפי "פרטי משתמש" ו-"טופס 101" בלבד.
+          </p>
+        </div>
+
+        <div style={{ border: "1px solid #ccc", padding: 12, marginBottom: 20 }}>
+          <h2>סיכום חודשי</h2>
+
+          <div style={{ marginBottom: 12 }}>
+            <label>חודש נבחר: </label>
+            <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
+              {availableMonths.length === 0 ? (
+                <option value={selectedMonth}>{getMonthLabel(selectedMonth)}</option>
+              ) : (
+                availableMonths.map((month) => (
+                  <option key={month} value={month}>
+                    {getMonthLabel(month)}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
+          <p>כמות משמרות בחודש: {monthlySummary.shiftsCount}</p>
+          <p>סה״כ שעות בחודש: {monthlySummary.totalHours.toFixed(2)}</p>
+          <p>שעות רגילות: {monthlySummary.regularHours.toFixed(2)}</p>
+          <p>שעות 125%: {monthlySummary.overtime125Hours.toFixed(2)}</p>
+          <p>שעות 150%: {monthlySummary.overtime150Hours.toFixed(2)}</p>
+
+          <hr />
+
+          <p>ברוטו חודשי: {formatMoney(monthlySummary.gross)}</p>
+          <p>מס הכנסה חודשי: {formatMoney(monthlySummary.incomeTax)}</p>
+          <p>ביטוח לאומי חודשי: {formatMoney(monthlySummary.bituach)}</p>
+          <p>פנסיה חודשית: {formatMoney(monthlySummary.pension)}</p>
+          <p>השתלמות חודשית: {formatMoney(monthlySummary.training)}</p>
+          <p>
+            <b>נטו חודשי: {formatMoney(monthlySummary.net)}</b>
+          </p>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label>שכר בסיס לשעה: </label>
+          <input
+            type="number"
+            value={salary}
+            onChange={(e) => setSalary(Number(e.target.value))}
+          />
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          {!isWorking ? (
+            <button onClick={startShift}>כניסה</button>
+          ) : (
+            <button onClick={endShift}>יציאה</button>
+          )}
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <textarea
+            placeholder="הערות למשמרת"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            style={{ width: 260, height: 60 }}
+          />
+        </div>
+
+        <h2>💰 כסף בזמן אמת: {formatMoney(liveMoney)}</h2>
+        <p>{isWorking ? "🟢 עובד עכשיו" : "⚪ לא עובד"}</p>
+
+        <hr />
+
+        <h2>➕ הוספה ידנית</h2>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          <div>
+            <label>תאריך התחלה</label>
+            <br />
+            <input
+              type="date"
+              value={manualStartDate}
+              onChange={(e) => setManualStartDate(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label>שעת התחלה</label>
+            <br />
+            <input
+              type="time"
+              value={manualStartTime}
+              onChange={(e) => setManualStartTime(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label>תאריך סיום</label>
+            <br />
+            <input
+              type="date"
+              value={manualEndDate}
+              onChange={(e) => setManualEndDate(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label>שעת סיום</label>
+            <br />
+            <input
+              type="time"
+              value={manualEndTime}
+              onChange={(e) => setManualEndTime(e.target.value)}
+            />
+          </div>
+
+          <div style={{ display: "flex", alignItems: "end" }}>
+            <button onClick={addManualShift}>הוסף</button>
+          </div>
+        </div>
+
+        <textarea
+          placeholder="הערות ליום ידני"
+          value={manualNote}
+          onChange={(e) => setManualNote(e.target.value)}
+          style={{ width: 260, height: 60 }}
+        />
+
+        <hr />
+
+        <h2>משמרות</h2>
+
+        {shifts.length === 0 && <p>אין עדיין משמרות</p>}
+
+        {shifts.map((shift) => {
+          const c = calculateShift(shift, holidayMap);
+
+          const netData = calculateNetSalary(c.totalPay, {
+            creditPoints: form101.creditPoints,
+            pensionPercent: form101.pensionPercent,
+            trainingFundPercent: form101.trainingFundPercent,
+          });
+
+          if (editingId === shift.id) {
+            return (
+              <div
+                key={shift.id}
+                style={{
+                  border: "2px solid blue",
+                  margin: 10,
+                  padding: 12,
+                }}
+              >
+                <div style={{ marginBottom: 8 }}>
+                  <input
+                    type="datetime-local"
+                    value={editStart}
+                    onChange={(e) => setEditStart(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 8 }}>
+                  <input
+                    type="datetime-local"
+                    value={editEnd}
+                    onChange={(e) => setEditEnd(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 8 }}>
+                  <input
+                    type="number"
+                    value={editSalary}
+                    onChange={(e) => setEditSalary(Number(e.target.value))}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 8 }}>
+                  <textarea
+                    value={editNote}
+                    onChange={(e) => setEditNote(e.target.value)}
+                    style={{ width: 260, height: 60 }}
+                  />
+                </div>
+
+                <button onClick={saveEdit} style={{ marginRight: 8 }}>
+                  שמור
+                </button>
+                <button onClick={cancelEdit}>ביטול</button>
+              </div>
+            );
+          }
+
+          return (
+            <div
+              key={shift.id}
+              style={{
+                border: "1px solid black",
+                margin: 10,
+                padding: 12,
+              }}
+            >
+              <p>
+                {formatDateTime(shift.start)} → {formatTimeOnly(shift.end)}
+              </p>
+
+              <p>סוג יום: {c.dayTypeLabel}</p>
+              {c.saturday && <p>🔥 תעריף שבת 150%</p>}
+              {c.holiday && <p>🎉 תעריף חג 150%</p>}
+
+              <p>סה"כ שעות: {c.totalHours.toFixed(2)}</p>
+
+              <p>
+                שעות רגילות: {c.regularHours.toFixed(2)} | שכר רגיל:{" "}
+                {formatMoney(c.regularPay)}
+              </p>
+
+              <p>
+                שעות 125%: {c.overtime125Hours.toFixed(2)} | שכר 125%:{" "}
+                {formatMoney(c.overtime125Pay)}
+              </p>
+
+              <p>
+                שעות 150%: {c.overtime150Hours.toFixed(2)} | שכר 150%:{" "}
+                {formatMoney(c.overtime150Pay)}
+              </p>
+
+              <p>שכר כולל: {formatMoney(c.totalPay)}</p>
+              <p>מס הכנסה: {formatMoney(netData.incomeTax)}</p>
+              <p>ביטוח לאומי: {formatMoney(netData.bituach)}</p>
+              <p>פנסיה עובד: {formatMoney(netData.pension)}</p>
+              <p>השתלמות עובד: {formatMoney(netData.training)}</p>
+              <p>
+                <b>נטו: {formatMoney(netData.net)}</b>
+              </p>
+
+              <p>תעריף בסיס שנשמר: {formatMoney(shift.salaryPerHour)}</p>
+              <p>תעריף אפקטיבי ליום הזה: {formatMoney(c.effectiveBaseRate)}</p>
+              <p>הערות: {shift.note || "-"}</p>
+
+              <button onClick={() => beginEdit(shift)} style={{ marginRight: 8 }}>
+                ✏️ ערוך
+              </button>
+              <button onClick={() => deleteShift(shift.id)}>🗑 מחק</button>
+            </div>
+          );
+        })}
+      </>
+    );
+  }
 
   return (
     <main
@@ -513,282 +1121,11 @@ export default function Home() {
     >
       <h1>Work Tracker</h1>
 
-      <div style={{ border: "1px solid #ccc", padding: 12, marginBottom: 20 }}>
-        <h2>פרופיל משתמש</h2>
+      {renderTopNav()}
 
-        <div style={{ marginBottom: 10 }}>
-          <label>נקודות זיכוי: </label>
-          <input
-            type="number"
-            step="0.25"
-            value={creditPoints}
-            onChange={(e) => setCreditPoints(Number(e.target.value))}
-          />
-        </div>
-
-        <div style={{ marginBottom: 10 }}>
-          <label>אחוז פנסיה עובד: </label>
-          <input
-            type="number"
-            step="0.1"
-            value={pensionPercent}
-            onChange={(e) => setPensionPercent(Number(e.target.value))}
-          />
-        </div>
-
-        <div style={{ marginBottom: 10 }}>
-          <label>אחוז קרן השתלמות עובד: </label>
-          <input
-            type="number"
-            step="0.1"
-            value={trainingFundPercent}
-            onChange={(e) => setTrainingFundPercent(Number(e.target.value))}
-          />
-        </div>
-      </div>
-
-      <div style={{ border: "1px solid #ccc", padding: 12, marginBottom: 20 }}>
-        <h2>סיכום חודשי</h2>
-
-        <div style={{ marginBottom: 12 }}>
-          <label>חודש נבחר: </label>
-          <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
-            {availableMonths.length === 0 ? (
-              <option value={selectedMonth}>{getMonthLabel(selectedMonth)}</option>
-            ) : (
-              availableMonths.map((month) => (
-                <option key={month} value={month}>
-                  {getMonthLabel(month)}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-
-        <p>כמות משמרות בחודש: {monthlySummary.shiftsCount}</p>
-        <p>סה״כ שעות בחודש: {monthlySummary.totalHours.toFixed(2)}</p>
-        <p>שעות רגילות: {monthlySummary.regularHours.toFixed(2)}</p>
-        <p>שעות 125%: {monthlySummary.overtime125Hours.toFixed(2)}</p>
-        <p>שעות 150%: {monthlySummary.overtime150Hours.toFixed(2)}</p>
-
-        <hr />
-
-        <p>ברוטו חודשי: {formatMoney(monthlySummary.gross)}</p>
-        <p>מס הכנסה חודשי: {formatMoney(monthlySummary.incomeTax)}</p>
-        <p>ביטוח לאומי חודשי: {formatMoney(monthlySummary.bituach)}</p>
-        <p>פנסיה חודשית: {formatMoney(monthlySummary.pension)}</p>
-        <p>השתלמות חודשית: {formatMoney(monthlySummary.training)}</p>
-        <p>
-          <b>נטו חודשי: {formatMoney(monthlySummary.net)}</b>
-        </p>
-      </div>
-
-      <div style={{ marginBottom: 16 }}>
-        <label>שכר בסיס לשעה: </label>
-        <input
-          type="number"
-          value={salary}
-          onChange={(e) => setSalary(Number(e.target.value))}
-        />
-      </div>
-
-      <div style={{ marginBottom: 16 }}>
-        {!isWorking ? (
-          <button onClick={startShift}>כניסה</button>
-        ) : (
-          <button onClick={endShift}>יציאה</button>
-        )}
-      </div>
-
-      <div style={{ marginBottom: 16 }}>
-        <textarea
-          placeholder="הערות למשמרת"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          style={{ width: 260, height: 60 }}
-        />
-      </div>
-
-      <h2>💰 כסף בזמן אמת: {formatMoney(liveMoney)}</h2>
-
-      <p>{isWorking ? "🟢 עובד עכשיו" : "⚪ לא עובד"}</p>
-
-      <hr />
-
-      <h2>➕ הוספה ידנית</h2>
-
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-        <div>
-          <label>תאריך התחלה</label>
-          <br />
-          <input
-            type="date"
-            value={manualStartDate}
-            onChange={(e) => setManualStartDate(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label>שעת התחלה</label>
-          <br />
-          <input
-            type="time"
-            value={manualStartTime}
-            onChange={(e) => setManualStartTime(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label>תאריך סיום</label>
-          <br />
-          <input
-            type="date"
-            value={manualEndDate}
-            onChange={(e) => setManualEndDate(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label>שעת סיום</label>
-          <br />
-          <input
-            type="time"
-            value={manualEndTime}
-            onChange={(e) => setManualEndTime(e.target.value)}
-          />
-        </div>
-
-        <div style={{ display: "flex", alignItems: "end" }}>
-          <button onClick={addManualShift}>הוסף</button>
-        </div>
-      </div>
-
-      <textarea
-        placeholder="הערות ליום ידני"
-        value={manualNote}
-        onChange={(e) => setManualNote(e.target.value)}
-        style={{ width: 260, height: 60 }}
-      />
-
-      <hr />
-
-      <h2>משמרות</h2>
-
-      {shifts.length === 0 && <p>אין עדיין משמרות</p>}
-
-      {shifts.map((shift) => {
-        const c = calculateShift(shift, holidayMap);
-
-        const netData = calculateNetSalary(c.totalPay, {
-          creditPoints,
-          pensionPercent,
-          trainingFundPercent,
-        });
-
-        if (editingId === shift.id) {
-          return (
-            <div
-              key={shift.id}
-              style={{
-                border: "2px solid blue",
-                margin: 10,
-                padding: 12,
-              }}
-            >
-              <div style={{ marginBottom: 8 }}>
-                <input
-                  type="datetime-local"
-                  value={editStart}
-                  onChange={(e) => setEditStart(e.target.value)}
-                />
-              </div>
-
-              <div style={{ marginBottom: 8 }}>
-                <input
-                  type="datetime-local"
-                  value={editEnd}
-                  onChange={(e) => setEditEnd(e.target.value)}
-                />
-              </div>
-
-              <div style={{ marginBottom: 8 }}>
-                <input
-                  type="number"
-                  value={editSalary}
-                  onChange={(e) => setEditSalary(Number(e.target.value))}
-                />
-              </div>
-
-              <div style={{ marginBottom: 8 }}>
-                <textarea
-                  value={editNote}
-                  onChange={(e) => setEditNote(e.target.value)}
-                  style={{ width: 260, height: 60 }}
-                />
-              </div>
-
-              <button onClick={saveEdit} style={{ marginRight: 8 }}>
-                שמור
-              </button>
-              <button onClick={cancelEdit}>ביטול</button>
-            </div>
-          );
-        }
-
-        return (
-          <div
-            key={shift.id}
-            style={{
-              border: "1px solid black",
-              margin: 10,
-              padding: 12,
-            }}
-          >
-            <p>
-              {formatDateTime(shift.start)} → {formatTimeOnly(shift.end)}
-            </p>
-
-            <p>סוג יום: {c.dayTypeLabel}</p>
-            {c.saturday && <p>🔥 תעריף שבת 150%</p>}
-            {c.holiday && <p>🎉 תעריף חג 150%</p>}
-
-            <p>סה"כ שעות: {c.totalHours.toFixed(2)}</p>
-
-            <p>
-              שעות רגילות: {c.regularHours.toFixed(2)} | שכר רגיל:{" "}
-              {formatMoney(c.regularPay)}
-            </p>
-
-            <p>
-              שעות 125%: {c.overtime125Hours.toFixed(2)} | שכר 125%:{" "}
-              {formatMoney(c.overtime125Pay)}
-            </p>
-
-            <p>
-              שעות 150%: {c.overtime150Hours.toFixed(2)} | שכר 150%:{" "}
-              {formatMoney(c.overtime150Pay)}
-            </p>
-
-            <p>שכר כולל: {formatMoney(c.totalPay)}</p>
-            <p>מס הכנסה: {formatMoney(netData.incomeTax)}</p>
-            <p>ביטוח לאומי: {formatMoney(netData.bituach)}</p>
-            <p>פנסיה עובד: {formatMoney(netData.pension)}</p>
-            <p>השתלמות עובד: {formatMoney(netData.training)}</p>
-            <p>
-              <b>נטו: {formatMoney(netData.net)}</b>
-            </p>
-
-            <p>תעריף בסיס שנשמר: {formatMoney(shift.salaryPerHour)}</p>
-            <p>תעריף אפקטיבי ליום הזה: {formatMoney(c.effectiveBaseRate)}</p>
-            <p>הערות: {shift.note || "-"}</p>
-
-            <button onClick={() => beginEdit(shift)} style={{ marginRight: 8 }}>
-              ✏️ ערוך
-            </button>
-            <button onClick={() => deleteShift(shift.id)}>🗑 מחק</button>
-          </div>
-        );
-      })}
+      {currentView === "account" && renderAccountView()}
+      {currentView === "form101" && renderForm101View()}
+      {currentView === "tracker" && accountComplete && form101Complete && renderTrackerView()}
     </main>
   );
 }
