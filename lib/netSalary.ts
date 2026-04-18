@@ -15,6 +15,30 @@ const TAX_BRACKETS = [
 
 const CREDIT_POINT_VALUE = 235;
 
+function getCurrentTaxBracket(salary: number) {
+  let min = 0;
+
+  for (const bracket of TAX_BRACKETS) {
+    if (salary <= bracket.limit) {
+      return {
+        rate: bracket.rate,
+        min,
+        max: Number.isFinite(bracket.limit) ? bracket.limit : null,
+      };
+    }
+
+    min = bracket.limit;
+  }
+
+  const topBracket = TAX_BRACKETS[TAX_BRACKETS.length - 1];
+
+  return {
+    rate: topBracket.rate,
+    min,
+    max: null,
+  };
+}
+
 export function calculateIncomeTax(salary: number, creditPoints: number) {
   let remaining = salary;
   let tax = 0;
@@ -50,8 +74,12 @@ export function calculateNetSalary(gross: number, profile: TaxProfile) {
   const bituach = calculateBituachLeumi(gross);
   const pension = gross * (profile.pensionPercent / 100);
   const training = gross * (profile.trainingFundPercent / 100);
+  const currentBracket = getCurrentTaxBracket(gross);
 
   const totalDeductions = incomeTax + bituach + pension + training;
+  const grossToNextBracket =
+    currentBracket.max === null ? 0 : Math.max(0, currentBracket.max - gross);
+  const grossAboveCurrentBracketMin = Math.max(0, gross - currentBracket.min);
 
   return {
     gross,
@@ -60,5 +88,10 @@ export function calculateNetSalary(gross: number, profile: TaxProfile) {
     pension,
     training,
     net: gross - totalDeductions,
+    currentBracketRate: currentBracket.rate,
+    currentBracketMin: currentBracket.min,
+    currentBracketMax: currentBracket.max,
+    grossToNextBracket,
+    grossAboveCurrentBracketMin,
   };
 }

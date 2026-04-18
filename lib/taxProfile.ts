@@ -8,9 +8,11 @@ export type ChildInfo = {
 export type Form101Data = {
   gender: "male" | "female";
   maritalStatus: "single" | "married" | "divorced" | "widowed";
+  birthDate: string;
   israelResident: boolean;
   spouseWorks: boolean;
   spouseMonthlyIncome: number;
+  commutePerDay: number;
   singleParent: boolean;
   childrenLivingWith: "me" | "other" | "shared";
   childPointsReceiver: "me" | "spouse" | "split";
@@ -25,9 +27,11 @@ export function createEmptyForm101(): Form101Data {
   return {
     gender: "male",
     maritalStatus: "single",
+    birthDate: "",
     israelResident: true,
     spouseWorks: false,
     spouseMonthlyIncome: 0,
+    commutePerDay: 0,
     singleParent: false,
     childrenLivingWith: "me",
     childPointsReceiver: "me",
@@ -37,6 +41,22 @@ export function createEmptyForm101(): Form101Data {
     pensionPercent: 6,
     trainingFundPercent: 2.5,
   };
+}
+
+export function getAgeFromBirthDate(birthDate: string, onDate = new Date()): number {
+  if (!birthDate) return 0;
+
+  const birth = new Date(birthDate);
+  if (Number.isNaN(birth.getTime())) return 0;
+
+  let age = onDate.getFullYear() - birth.getFullYear();
+  const monthDiff = onDate.getMonth() - birth.getMonth();
+
+  if (monthDiff < 0 || (monthDiff === 0 && onDate.getDate() < birth.getDate())) {
+    age--;
+  }
+
+  return age;
 }
 
 function isValidChildDate(child: ChildInfo): boolean {
