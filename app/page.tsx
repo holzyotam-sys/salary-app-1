@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Session, User } from "@supabase/supabase-js";
 import { calculateNetSalary } from "@/lib/netSalary";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   buildTrackerProfile,
   calculateCreditPoints,
@@ -36,6 +38,11 @@ type UserAccount = {
   firstName: string;
   lastName: string;
   email: string;
+};
+
+type NotificationSettings = {
+  monthlySummary: boolean;
+  shiftReminders: boolean;
 };
 
 type AppStep = "account" | "form101" | "tracker";
@@ -272,6 +279,56 @@ function createEmptyAccount(): UserAccount {
   };
 }
 
+function createDefaultNotificationSettings(): NotificationSettings {
+  return {
+    monthlySummary: true,
+    shiftReminders: true,
+  };
+}
+
+function normalizeAccount(value: Partial<UserAccount> | null | undefined): UserAccount {
+  return {
+    ...createEmptyAccount(),
+    ...(value ?? {}),
+  };
+}
+
+function normalizeForm101(value: Partial<Form101Data> | null | undefined): Form101Data {
+  return {
+    ...createEmptyForm101(),
+    ...(value ?? {}),
+  };
+}
+
+function normalizeNotificationSettings(
+  value: Partial<NotificationSettings> | null | undefined
+): NotificationSettings {
+  return {
+    ...createDefaultNotificationSettings(),
+    ...(value ?? {}),
+  };
+}
+
+function normalizeShiftRecord(value: Partial<Shift> | null | undefined): Shift | null {
+  if (!value?.id || typeof value.start !== "number" || typeof value.end !== "number") {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    start: value.start,
+    end: value.end,
+    salaryPerHour: Number(value.salaryPerHour) || 0,
+    note: value.note ?? "",
+    unpaidBreakMs: Number(value.unpaidBreakMs) || 0,
+  };
+}
+
+function logSupabaseStep(step: string, error: unknown, details?: unknown) {
+  if (!error) return;
+  console.error(`[supabase] ${step}`, error, details ?? "");
+}
+
 function monthLabel(month: number): string {
   const labels = [
     "",
@@ -453,6 +510,16 @@ const moneyPanelStyle = {
 };
 
 export default function Home() {
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [cloudReady, setCloudReady] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(
+    createDefaultNotificationSettings()
+  );
   const [salaryManuallySet, setSalaryManuallySet] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("salaryManuallySet") === "true";
@@ -579,6 +646,102 @@ export default function Home() {
   const breakTooltipRef = useRef<HTMLDivElement | null>(null);
   const commuteTooltipRef = useRef<HTMLDivElement | null>(null);
 
+  const ensureUserRows = useCallback(
+    async (user: User) => {
+      const results = {
+        profileReady: false,
+        form101Ready: false,
+        notificationReady: false,
+      };
+
+      const { data: profileRow, error: profileLoadError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", user.id)
+        .maybeSingle();
+      logSupabaseStep("profile load", profileLoadError, { userId: user.id });
+
+      if (!profileLoadError) {
+        if (!profileRow) {
+          const { error: profileCreateError } = await supabase.from("profiles").insert({
+            id: user.id,
+            first_name: "",
+            last_name: "",
+            phone: "",
+            email: user.email ?? "",
+            birth_date: null,
+            hourly_base: null,
+            travel_per_day: 0,
+            language: "he",
+          });
+          logSupabaseStep("profile create", profileCreateError, { userId: user.id });
+          results.profileReady = !profileCreateError;
+        } else {
+          results.profileReady = true;
+        }
+      }
+
+      const { data: form101Row, error: form101LoadError } = await supabase
+        .from("form101")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      logSupabaseStep("form101 load", form101LoadError, { userId: user.id });
+
+      if (!form101LoadError) {
+        if (!form101Row) {
+          const emptyForm = createEmptyForm101();
+          const { error: form101CreateError } = await supabase.from("form101").insert({
+            user_id: user.id,
+            gender: emptyForm.gender,
+            marital_status: emptyForm.maritalStatus,
+            credit_points: calculateCreditPoints(emptyForm),
+            pension_percent: emptyForm.pensionPercent,
+            training_fund_percent: emptyForm.trainingFundPercent,
+            spouse_income: emptyForm.spouseMonthlyIncome,
+            company_car: false,
+            company_car_tax_value: 0,
+          });
+          logSupabaseStep("form101 create", form101CreateError, { userId: user.id });
+          results.form101Ready = !form101CreateError;
+        } else {
+          results.form101Ready = true;
+        }
+      }
+
+      const { data: notificationRow, error: notificationLoadError } = await supabase
+        .from("notification_settings")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      logSupabaseStep("notification_settings load", notificationLoadError, {
+        userId: user.id,
+      });
+
+      if (!notificationLoadError) {
+        if (!notificationRow) {
+          const defaults = createDefaultNotificationSettings();
+          const { error: notificationCreateError } = await supabase
+            .from("notification_settings")
+            .insert({
+              user_id: user.id,
+              remind_after_9_hours: defaults.shiftReminders,
+              goal_notifications: defaults.monthlySummary,
+            });
+          logSupabaseStep("notification_settings create", notificationCreateError, {
+            userId: user.id,
+          });
+          results.notificationReady = !notificationCreateError;
+        } else {
+          results.notificationReady = true;
+        }
+      }
+
+      return results;
+    },
+    [supabase]
+  );
+
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
       setIsMounted(true);
@@ -593,6 +756,205 @@ export default function Home() {
 
     return () => window.cancelAnimationFrame(frameId);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+
+      if (error) {
+        setAuthError("לא הצלחנו לבדוק את מצב ההתחברות.");
+      } else {
+        setSession(data.session);
+      }
+
+      setAuthLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!active) return;
+      setSession(nextSession);
+      if (!nextSession) {
+        setCloudReady(false);
+      }
+      setAuthLoading(false);
+      setAuthError("");
+      setAuthMessage("");
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!session?.user) return;
+
+    let cancelled = false;
+
+    async function loadCloudData() {
+      setCloudReady(false);
+      setAuthError("");
+
+      try {
+        const bootstrapResult = await ensureUserRows(session.user);
+        const bootstrapIssues: string[] = [];
+
+        if (!bootstrapResult.profileReady) bootstrapIssues.push("profile");
+        if (!bootstrapResult.form101Ready) bootstrapIssues.push("form101");
+        if (!bootstrapResult.notificationReady) bootstrapIssues.push("notification_settings");
+
+        const [profileResult, form101Result, notificationResult, shiftsResult] =
+          await Promise.all([
+            supabase
+              .from("profiles")
+              .select(
+                "id, email, phone, first_name, last_name, birth_date, hourly_base, travel_per_day, language"
+              )
+              .eq("id", session.user.id)
+              .maybeSingle(),
+            supabase
+              .from("form101")
+              .select(
+                "user_id, gender, marital_status, credit_points, pension_percent, training_fund_percent, spouse_income, company_car, company_car_tax_value"
+              )
+              .eq("user_id", session.user.id)
+              .maybeSingle(),
+            supabase
+              .from("notification_settings")
+              .select("user_id, remind_after_9_hours, goal_notifications")
+              .eq("user_id", session.user.id)
+              .maybeSingle(),
+            supabase
+              .from("shifts")
+              .select("id, user_id, start_at, end_at, break_minutes, notes, source")
+              .eq("user_id", session.user.id)
+              .order("start_at", { ascending: false }),
+          ]);
+
+        logSupabaseStep("profile load", profileResult.error, { userId: session.user.id });
+        logSupabaseStep("form101 load", form101Result.error, { userId: session.user.id });
+        logSupabaseStep("notification_settings load", notificationResult.error, {
+          userId: session.user.id,
+        });
+        logSupabaseStep("shifts load", shiftsResult.error, { userId: session.user.id });
+
+        if (cancelled) return;
+
+        if (profileResult.error) {
+          bootstrapIssues.push("profile-load");
+        } else if (profileResult.data) {
+          setAccount(
+            normalizeAccount({
+              email: profileResult.data.email ?? session.user.email ?? "",
+              phone: profileResult.data.phone ?? "",
+              firstName: profileResult.data.first_name ?? "",
+              lastName: profileResult.data.last_name ?? "",
+            })
+          );
+
+          if (!salaryManuallySet && !isWorking && Number(profileResult.data.hourly_base) > 0) {
+            setSalary(Number(profileResult.data.hourly_base));
+          }
+        } else {
+          setAccount((prev) =>
+            normalizeAccount({
+              ...prev,
+              email: prev.email || session.user.email || "",
+            })
+          );
+        }
+
+        if (form101Result.error) {
+          bootstrapIssues.push("form101-load");
+        } else if (form101Result.data) {
+          const loadedForm101 = normalizeForm101({
+            ...createEmptyForm101(),
+            gender:
+              form101Result.data.gender === "female" ? "female" : "male",
+            maritalStatus:
+              form101Result.data.marital_status === "married" ||
+              form101Result.data.marital_status === "divorced" ||
+              form101Result.data.marital_status === "widowed"
+                ? form101Result.data.marital_status
+                : "single",
+            pensionPercent: Number(form101Result.data.pension_percent) || 0,
+            trainingFundPercent:
+              Number(form101Result.data.training_fund_percent) || 0,
+            spouseMonthlyIncome: Number(form101Result.data.spouse_income) || 0,
+            commutePerDay:
+              Number(profileResult.data?.travel_per_day) || 0,
+            birthDate:
+              profileResult.data?.birth_date && typeof profileResult.data.birth_date === "string"
+                ? profileResult.data.birth_date
+                : "",
+          });
+
+          setForm101(loadedForm101);
+
+          if (!salaryManuallySet && !isWorking) {
+            const age = getAgeFromBirthDate(loadedForm101.birthDate);
+            if (age) {
+              setSalary(getDefaultHourlyWageByAge(age));
+            }
+          }
+        }
+
+        if (notificationResult.error) {
+          bootstrapIssues.push("notification-load");
+        } else if (notificationResult.data) {
+          setNotificationSettings(
+            normalizeNotificationSettings({
+              shiftReminders: Boolean(notificationResult.data.remind_after_9_hours),
+              monthlySummary: Boolean(notificationResult.data.goal_notifications),
+            })
+          );
+        }
+
+        if (shiftsResult.error) {
+          bootstrapIssues.push("shifts-load");
+        } else {
+          const fallbackHourlyBase = Number(profileResult.data?.hourly_base) || 35;
+          const normalizedShifts = (shiftsResult.data ?? [])
+            .map((row) =>
+              normalizeShiftRecord({
+                id: row.id,
+                start: new Date(row.start_at).getTime(),
+                end: new Date(row.end_at).getTime(),
+                salaryPerHour: fallbackHourlyBase,
+                note: row.notes ?? "",
+                unpaidBreakMs: (Number(row.break_minutes) || 0) * 60 * 1000,
+              })
+            )
+            .filter((shift): shift is Shift => Boolean(shift));
+
+          setShifts(normalizedShifts);
+        }
+
+        setAuthError(
+          bootstrapIssues.length > 0
+            ? "חלק מהנתונים לא נטענו מהענן. האפליקציה ממשיכה עם fallback מקומי."
+            : ""
+        );
+        setCloudReady(true);
+      } catch (error) {
+        logSupabaseStep("bootstrap fatal", error, { userId: session.user.id });
+        if (cancelled) return;
+        setAuthError("חלק מהנתונים לא נטענו מהענן. האפליקציה ממשיכה עם fallback מקומי.");
+        setCloudReady(true);
+      }
+    }
+
+    loadCloudData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ensureUserRows, isWorking, salaryManuallySet, session, supabase]);
 
   useEffect(() => {
     localStorage.setItem("shifts", JSON.stringify(shifts));
@@ -628,6 +990,138 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("form101Data", JSON.stringify(form101));
   }, [form101]);
+
+  useEffect(() => {
+    if (!session?.user || !cloudReady) return;
+
+    const timeoutId = window.setTimeout(() => {
+      void supabase
+        .from("profiles")
+        .upsert(
+          {
+            id: session.user.id,
+            email: account.email || session.user.email || "",
+            phone: account.phone,
+            first_name: account.firstName,
+            last_name: account.lastName,
+            birth_date: form101.birthDate || null,
+            hourly_base: salary,
+            travel_per_day: form101.commutePerDay,
+            language: "he",
+          },
+          { onConflict: "id" }
+        )
+        .then(({ error }) =>
+          logSupabaseStep("profile save", error, { userId: session.user.id })
+        );
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [account, cloudReady, form101.birthDate, form101.commutePerDay, salary, session, supabase]);
+
+  useEffect(() => {
+    if (!session?.user || !cloudReady) return;
+
+    const timeoutId = window.setTimeout(() => {
+      void supabase
+        .from("form101")
+        .upsert(
+          {
+            user_id: session.user.id,
+            gender: form101.gender,
+            marital_status: form101.maritalStatus,
+            credit_points: calculateCreditPoints(form101),
+            pension_percent: form101.pensionPercent,
+            training_fund_percent: form101.trainingFundPercent,
+            spouse_income: form101.spouseMonthlyIncome,
+            company_car: false,
+            company_car_tax_value: 0,
+          },
+          { onConflict: "user_id" }
+        )
+        .then(({ error }) =>
+          logSupabaseStep("form101 save", error, { userId: session.user.id })
+        );
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [cloudReady, form101, session, supabase]);
+
+  useEffect(() => {
+    if (!session?.user || !cloudReady) return;
+
+    const timeoutId = window.setTimeout(() => {
+      void supabase
+        .from("notification_settings")
+        .upsert(
+          {
+            user_id: session.user.id,
+            remind_after_9_hours: notificationSettings.shiftReminders,
+            goal_notifications: notificationSettings.monthlySummary,
+          },
+          { onConflict: "user_id" }
+        )
+        .then(({ error }) =>
+          logSupabaseStep("notification_settings save", error, {
+            userId: session.user.id,
+          })
+        );
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [cloudReady, notificationSettings, session, supabase]);
+
+  useEffect(() => {
+    if (!session?.user || !cloudReady) return;
+
+    let cancelled = false;
+
+    async function syncShifts() {
+      const userId = session.user.id;
+      const { error: deleteError } = await supabase
+        .from("shifts")
+        .delete()
+        .eq("user_id", userId);
+
+      if (deleteError || cancelled) {
+        if (deleteError) {
+          logSupabaseStep("shifts delete before save", deleteError, { userId });
+          setAuthError("שמירת המשמרות לענן נכשלה.");
+        }
+        return;
+      }
+
+      const { error: insertError } =
+        shifts.length === 0
+          ? { error: null }
+          : await supabase.from("shifts").insert(
+              shifts.map((shift) => ({
+                id: shift.id,
+                user_id: userId,
+                start_at: new Date(shift.start).toISOString(),
+                end_at: new Date(shift.end).toISOString(),
+                break_minutes: Math.round((shift.unpaidBreakMs ?? 0) / 1000 / 60),
+                notes: shift.note,
+                source: "app",
+              }))
+            );
+
+      if (cancelled) return;
+      if (insertError) {
+        logSupabaseStep("shifts save", insertError, { userId });
+        setAuthError("שמירת המשמרות לענן נכשלה.");
+      }
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void syncShifts();
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [cloudReady, session, shifts, supabase]);
 
   useEffect(() => {
     if (!isMounted) return;
@@ -756,6 +1250,36 @@ export default function Home() {
       : initialStep === "form101"
       ? "form101"
       : currentView;
+
+  async function sendMagicLink() {
+    if (!authEmail.trim()) {
+      setAuthError("יש להזין כתובת מייל.");
+      setAuthMessage("");
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: authEmail.trim(),
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    });
+
+    if (error) {
+      setAuthError("שליחת הקישור נכשלה. נסה שוב.");
+      setAuthMessage("");
+      return;
+    }
+
+    setAuthError("");
+    setAuthMessage("שלחנו אליך קישור כניסה למייל.");
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    setCloudReady(false);
+    setCurrentView("tracker");
+  }
 
   function startShift() {
     setStartTime(Date.now());
@@ -1081,6 +1605,53 @@ export default function Home() {
             מעקב עבודה
           </button>
         )}
+        {session?.user && (
+          <button style={secondaryButtonStyle} onClick={signOut}>
+            התנתקות
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  function renderAuthView() {
+    return (
+      <div style={cardStyle}>
+        <div style={{ ...trackerInnerContentStyle, maxWidth: 360 }}>
+          <h2 style={{ ...sectionTitleStyle, textAlign: "center" }}>כניסה עם קישור למייל</h2>
+          <p style={{ ...secondaryTextStyle, textAlign: "center", marginTop: 0 }}>
+            כדי לשמור את הפרופיל, טופס 101 והמשמרות בענן, התחבר עם המייל שלך.
+          </p>
+
+          <div style={fieldWrapperStyle}>
+            <label style={{ ...labelStyle, textAlign: "center" }}>מייל</label>
+            <input
+              style={{ ...inputStyle, margin: "0 auto" }}
+              type="email"
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+              placeholder="name@example.com"
+            />
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <button style={primaryButtonStyle} onClick={sendMagicLink}>
+              שלח קישור כניסה
+            </button>
+          </div>
+
+          {authMessage && (
+            <p style={{ ...bodyTextStyle, textAlign: "center", marginBottom: 0 }}>
+              {authMessage}
+            </p>
+          )}
+
+          {authError && (
+            <p style={{ ...bodyTextStyle, textAlign: "center", color: "#FCA5A5", marginBottom: 0 }}>
+              {authError}
+            </p>
+          )}
+        </div>
       </div>
     );
   }
@@ -1991,11 +2562,36 @@ export default function Home() {
           שליטה ברורה, רגועה ומדויקת על השכר, המשמרות וההתקדמות שלך.
         </p>
 
+        {authLoading ? (
+          <div style={cardStyle}>
+            <div style={trackerInnerContentStyle}>
+              <p style={{ ...bodyTextStyle, textAlign: "center", margin: 0 }}>טוען התחברות...</p>
+            </div>
+          </div>
+        ) : !session?.user ? (
+          renderAuthView()
+        ) : !cloudReady ? (
+          <div style={cardStyle}>
+            <div style={trackerInnerContentStyle}>
+              <p style={{ ...bodyTextStyle, textAlign: "center", marginBottom: 8 }}>
+                טוען את הנתונים האישיים שלך מהענן...
+              </p>
+              {authError && (
+                <p style={{ ...bodyTextStyle, textAlign: "center", color: "#FCA5A5", margin: 0 }}>
+                  {authError}
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
         {renderTopNav()}
 
         {activeView === "account" && renderAccountView()}
         {activeView === "form101" && renderForm101View()}
         {activeView === "tracker" && accountComplete && form101Complete && renderTrackerView()}
+          </>
+        )}
       </div>
     </main>
   );
